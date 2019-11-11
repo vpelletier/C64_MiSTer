@@ -113,6 +113,7 @@ entity fpga64_sid_iec is
 		iec_clk_o	: out std_logic;
 		iec_clk_i	: in  std_logic;
 		iec_atn_o	: out std_logic;
+		iec_srq_n_i	: in  std_logic;
 		
 		c64rom_addr : in  std_logic_vector(13 downto 0);
 		c64rom_data : in  std_logic_vector(7 downto 0);
@@ -672,7 +673,7 @@ begin
 			pb_in => cia1_pbi,
 			pb_out => cia1_pbo,
 
-			flag_n => cass_in,
+			flag_n => cass_in and iec_srq_n_i,
 			sp_in => '1',
 			cnt_in => '1',
 

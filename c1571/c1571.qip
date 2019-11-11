@@ -1,0 +1,4 @@
+set_global_assignment -name SYSTEMVERILOG_FILE c1571/c1571_track.sv
+set_global_assignment -name VERILOG_FILE c1571/c1571_logic.v
+set_global_assignment -name VERILOG_FILE c1571/c1571_sd.v
+set_global_assignment -name VHDL_FILE c1571/c1571.vhd
