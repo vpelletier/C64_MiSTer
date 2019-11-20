@@ -189,10 +189,10 @@ always @(posedge clk_c1541) begin
 	reg       track_modified;
 	reg [6:0] track_num;
 	reg [1:0] stp_r;
-	reg       act_r;
+	reg       mtr_r;
 
 	stp_r <= stp;
-	act_r <= act;
+	mtr_r <= mtr;
 	save_track <= 0;
 	track <= track_num[6:1];
 
@@ -223,7 +223,7 @@ always @(posedge clk_c1541) begin
 			end
 		end
 
-		if (act_r & ~act) begin		// stopping activity
+		if (mtr_r & ~mtr) begin		// stopping activity
 			save_track <= track_modified;
 			track_modified <= 0;
 		end
