@@ -47,8 +47,7 @@ assign sb_clk_out  = ~(uc1_pb_o[3] | uc1_pb_oe_n[3]);
 assign dout = uc3_pa_o | uc3_pa_oe_n;
 assign mode = uc3_cb2_o | uc3_cb2_oe_n;
 
-assign stp[1] = uc3_pb_o[0] | uc3_pb_oe_n[0];
-assign stp[0] = uc3_pb_o[1] | uc3_pb_oe_n[1];
+assign stp    = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
 assign mtr    = uc3_pb_o[2] | uc3_pb_oe_n[2];
 assign act    = uc3_pb_o[3] | uc3_pb_oe_n[3];
 assign freq   = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];

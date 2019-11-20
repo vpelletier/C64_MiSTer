@@ -204,9 +204,9 @@ always @(posedge clk_c1541) begin
 		track_modified <= 0;
 	end else begin
 		if (mtr) begin
-			if ( (stp_r == 0 & stp == 2)
-				| (stp_r == 2 & stp == 1)
-				| (stp_r == 1 & stp == 3)
+			if ( (stp_r == 0 & stp == 1)
+				| (stp_r == 1 & stp == 2)
+				| (stp_r == 2 & stp == 3)
 				| (stp_r == 3 & stp == 0)) begin
 				if (half_track < 80) half_track <= half_track + 1'b1;
 				save_track <= track_modified;
@@ -214,9 +214,9 @@ always @(posedge clk_c1541) begin
 			end
 
 			if ( (stp_r == 0 & stp == 3)
-				| (stp_r == 2 & stp == 0)
-				| (stp_r == 1 & stp == 2)
-				| (stp_r == 3 & stp == 1)) begin
+				| (stp_r == 3 & stp == 2)
+				| (stp_r == 2 & stp == 1)
+				| (stp_r == 1 & stp == 0)) begin
 				if (half_track > 1) half_track <= half_track - 1'b1;
 				save_track <= track_modified;
 				track_modified <= 0;
