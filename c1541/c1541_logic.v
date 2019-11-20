@@ -33,7 +33,7 @@ module c1541_logic
    output       mode,		// read/write
    output [1:0] stp,			// stepper motor control
    output       mtr,			// spindle motor on/off
-   output [1:0] freq,		// motor frequency
+   output [1:0] speed_zone,	// bit clock adjustment for track density
    input        sync_n,		// reading SYNC bytes
    input        byte_n,		// byte ready
    input        wps_n,		// write-protect sense
@@ -47,10 +47,10 @@ assign sb_clk_out  = ~(uc1_pb_o[3] | uc1_pb_oe_n[3]);
 assign dout = uc3_pa_o | uc3_pa_oe_n;
 assign mode = uc3_cb2_o | uc3_cb2_oe_n;
 
-assign stp    = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
-assign mtr    = uc3_pb_o[2] | uc3_pb_oe_n[2];
-assign act    = uc3_pb_o[3] | uc3_pb_oe_n[3];
-assign freq   = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];
+assign stp        = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
+assign mtr        = uc3_pb_o[2] | uc3_pb_oe_n[2];
+assign act        = uc3_pb_o[3] | uc3_pb_oe_n[3];
+assign speed_zone = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];
 
 
 reg iec_atn;

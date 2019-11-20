@@ -27,6 +27,7 @@ module c1541_gcr
 
    input      [5:0] track,
    output reg [4:0] sector,
+   input      [1:0] speed_zone,
    output reg [7:0] byte_addr,
 
    input      [7:0] ram_do,
@@ -91,6 +92,12 @@ end
 
 reg bit_clk_en;
 always @(posedge clk32) begin
+	wire [7:0] clk32_speed_zone_ratio[4] = '{
+		104, // 30.769 kHz
+		112, // 28.571 kHz
+		120, // 26.666 kHz
+		128  // 25.000 kHz
+	};
 	reg [7:0] bit_clk_cnt;
 	reg       mode_r1;
 
@@ -102,7 +109,7 @@ always @(posedge clk32) begin
 		bit_clk_en <= 0;
 	end else begin
 		bit_clk_en <= 0;
-		if (bit_clk_cnt == 111) begin
+		if (bit_clk_cnt >= clk32_speed_zone_ratio[speed_zone]) begin
 			bit_clk_en <= 1;
 			bit_clk_cnt = 0;
 		end else

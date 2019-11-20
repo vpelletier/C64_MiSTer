@@ -88,6 +88,7 @@ wire       mode; // read/write
 wire [1:0] stp;
 wire       mtr;
 wire       act;
+wire [1:0] speed_zone;
 
 c1541_logic c1541_logic
 (
@@ -115,7 +116,7 @@ c1541_logic c1541_logic
 	.mode(mode),
 	.stp(stp),
 	.mtr(mtr),
-	.freq(),
+	.speed_zone(speed_zone),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 	.wps_n(~readonly ^ ch_state),
@@ -146,6 +147,7 @@ c1541_gcr c1541_gcr
 
 	.track(track),
 	.sector(sector),
+	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
 	.ram_do(buff_dout),
