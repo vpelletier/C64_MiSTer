@@ -32,7 +32,7 @@ module c1541_logic
    output [7:0] dout,		// disk write data
    output       mode,		// read/write
    output [1:0] stp,			// stepper motor control
-   output       mtr,			// stepper motor on/off
+   output       mtr,			// spindle motor on/off
    output [1:0] freq,		// motor frequency
    input        sync_n,		// reading SYNC bytes
    input        byte_n,		// byte ready

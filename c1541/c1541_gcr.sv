@@ -21,7 +21,7 @@ module c1541_gcr
    output reg [7:0] dout,		// data from ram to 1541 logic
    input      [7:0] din,		// data from 1541 logic to ram
    input            mode,		// read/write
-   input            mtr,		// stepper motor on/off
+   input            mtr,		// spindle motor on/off
    output           sync_n,		// reading SYNC bytes
    output reg       byte_n,		// byte ready
 
@@ -185,7 +185,7 @@ always @(posedge clk32) begin
 					if (!byte_cnt) data_cks <= 0;
 					else data_cks <= data_cks ^ data;
 
-					if (mode | (~mode & autorise_count)) byte_cnt <= byte_cnt + 1'b1;
+					if (mtr & (mode | (~mode & autorise_count))) byte_cnt <= byte_cnt + 1'b1;
 				end else begin
 					nibble <= 1;
 					if (~mode && ram_di == 'h07) begin
