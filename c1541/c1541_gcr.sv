@@ -39,24 +39,24 @@ module c1541_gcr
 assign sync_n = ~(mtr & ram_ready) | sync_in_n;
 
 wire [4:0] sector_max=	(track < 18) ? 5'd20 :
-								(track < 25) ? 5'd18 :
-								(track < 31) ? 5'd17 :
-													5'd16;
+			(track < 25) ? 5'd18 :
+			(track < 31) ? 5'd17 :
+				       5'd16;
 
 wire [7:0] data_header= (byte_cnt == 0) ? 8'h08 :
-								(byte_cnt == 1) ? track ^ sector :
-								(byte_cnt == 2) ? sector :
-								(byte_cnt == 3) ? track :
-								(byte_cnt == 4) ? 8'h20 :
-								(byte_cnt == 5) ? 8'h20 :
-														8'h0F;
+			(byte_cnt == 1) ? track ^ sector :
+			(byte_cnt == 2) ? sector :
+			(byte_cnt == 3) ? track :
+			(byte_cnt == 4) ? 8'h20 :
+			(byte_cnt == 5) ? 8'h20 :
+					  8'h0F;
 
 wire [7:0] data_body=	(byte_cnt == 0)   ? 8'h07 :
-								(byte_cnt == 257) ? data_cks :
-								(byte_cnt == 258) ? 8'h00 :
-								(byte_cnt == 259) ? 8'h00 :
-								(byte_cnt >= 260) ? 8'h0F :
-														  ram_do;
+			(byte_cnt == 257) ? data_cks :
+			(byte_cnt == 258) ? 8'h00 :
+			(byte_cnt == 259) ? 8'h00 :
+			(byte_cnt >= 260) ? 8'h0F :
+					    ram_do;
 
 wire [7:0] data = state ? data_body : data_header;
 wire [4:0] gcr_nibble = gcr_lut[nibble ? data[3:0] : data[7:4]];
@@ -128,7 +128,7 @@ reg       sync_in_n;
 reg       byte_in_n;
 reg [8:0] byte_cnt;
 reg       nibble;
-reg       state;
+reg       state; // 0: header, 1: body
 reg [7:0] data_cks;
 reg [7:0] gcr_byte_out;
 reg [4:0] gcr_nibble_out;
@@ -207,12 +207,12 @@ always @(posedge clk32) begin
 			end
 
 			if (~state) begin
-				if (byte_cnt == 16) begin
+				if (byte_cnt == 16) begin // 8 header bytes + 9 bytes gap
 					sync_in_n <= 0;
 					state <= 1;
 				end
 			end
-			else if (byte_cnt == 273) begin
+			else if (byte_cnt == 273) begin // XXX: real post-data gap depends on track circumference and number of blocks on track
 				sync_in_n <= 0;
 				state <= 0;
 				if (sector == sector_max) sector <= 0;

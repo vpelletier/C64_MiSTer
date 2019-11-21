@@ -26,19 +26,21 @@ module c1541_logic
    input        c1541stdrom_wr,
    input        c1541std,
 
-   // drive-side interface
-   input [1:0]  ds,			// device select
-   input [7:0]  din,			// disk read data
-   output [7:0] dout,		// disk write data
-   output       mode,		// read/write
-   output [1:0] stp,			// stepper motor control
-   output       mtr,			// spindle motor on/off
-   output [1:0] speed_zone,	// bit clock adjustment for track density
-   input        sync_n,		// reading SYNC bytes
-   input        byte_n,		// byte ready
-   input        wps_n,		// write-protect sense
-   input        tr00_sense_n,	// track 0 sense (unused?)
-   output       act			// activity LED
+   // floppy-side interface
+   input  [7:0] din,            // disk read data
+   output [7:0] dout,           // disk write data
+   output       mode,           // 1=read, 0=write
+   output [1:0] stp,            // stepper motor control
+   output       mtr,            // spindle motor on/off
+   output [1:0] speed_zone,     // bit clock adjustment for track density
+   input        sync_n,         // reading SYNC bytes
+   input        byte_n,         // byte ready
+   input        wps_n,          // write-protect sense
+   input        tr00_sense_n,   // track 0 sense
+
+   // human-side interface
+   input  [1:0] ds,             // device select
+   output       act             // activity LED
 );
 
 assign sb_data_out = ~(uc1_pb_o[1] | uc1_pb_oe_n[1]) & ~((uc1_pb_o[4] | uc1_pb_oe_n[4]) ^ ~sb_atn_in);
@@ -79,8 +81,8 @@ always @(posedge clk32) begin
 	reg [4:0] div;
 	div <= div + 1'd1;
 
-	p2_h_r <= !div[4] && !div[3:0];
-	p2_h_f <=  div[4] && !div[3:0];
+	p2_h_r <= div[4:0] == 5'b00000;
+	p2_h_f <= div[4:0] == 5'b10000;
 end
 
 // The address decoder only sees A15 A12 A11 and A10, which means the
@@ -176,7 +178,7 @@ c1541_via6522 uc1
 	.ca2_o(),
 	.ca2_t_l(),
 
-	.port_a_i({7'd0,tr00_sense_n}),
+	.port_a_i({7'd0, tr00_sense_n}),
 	.port_a_o(),
 	.port_a_t_l(),
 
