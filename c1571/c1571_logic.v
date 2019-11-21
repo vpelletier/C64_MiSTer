@@ -208,10 +208,10 @@ c1541_via6522 uc9
 	.port_a_t_l(uc9_pa_oe_n),
 
 	// port b
-	.cb1_i(1'b1),
+	.cb1_i(1'b0),
 	.cb1_o(),
 	.cb1_t_l(),
-	.cb2_i(1'b1),
+	.cb2_i(1'b0),
 	.cb2_o(),
 	.cb2_t_l(),
 
@@ -253,7 +253,7 @@ c1541_via6522 uc4
 
 	// port a
 	.ca1_i(byte_rdy_n),
-	.ca2_i(1'b1),
+	.ca2_i(1'b0),
 	.ca2_o(uc4_ca2_o),
 	.ca2_t_l(uc4_ca2_oe_n),
 
@@ -262,10 +262,10 @@ c1541_via6522 uc4
 	.port_a_t_l(uc4_pa_oe_n),
 
 	// port b
-	.cb1_i(1'b1),
+	.cb1_i(1'b0),
 	.cb1_o(),
 	.cb1_t_l(),
-	.cb2_i(1'b1),
+	.cb2_i(1'b0),
 	.cb2_o(uc4_cb2_o),
 	.cb2_t_l(uc4_cb2_oe_n),
 
