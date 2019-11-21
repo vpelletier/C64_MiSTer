@@ -105,7 +105,7 @@ wire [15:0] cpu_a;
 wire  [7:0] cpu_do;
 wire        cpu_rw;
 wire        cpu_irq_n = uc1_irq_n & uc3_irq_n;
-wire        cpu_so_n = byte_n | ~soe;
+wire        byte_rdy_n = byte_n | ~soe;
 
 T65 cpu
 (
@@ -117,7 +117,7 @@ T65 cpu
 	.abort_n(1'b1),
 	.irq_n(cpu_irq_n),
 	.nmi_n(1'b1),
-	.so_n(cpu_so_n),
+	.so_n(byte_rdy_n),
 	.r_w_n(cpu_rw),
 	.a({8'h00,cpu_a}),
 	.di(cpu_di),
@@ -204,7 +204,7 @@ c1541_via6522 uc3
 	.irq_l(uc3_irq_n),
 
 	// port a
-	.ca1_i(cpu_so_n),
+	.ca1_i(byte_rdy_n),
 	.ca2_i(1'b0),
 	.ca2_o(uc3_ca2_o),
 	.ca2_t_l(uc3_ca2_oe_n),
