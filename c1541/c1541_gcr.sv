@@ -128,7 +128,6 @@ reg [4:0] gcr_nibble_out;
 
 always @(posedge clk32) begin
 	reg       mode_r2;
-	reg [5:0] old_track;
 	reg       autorise_write;
 	reg [5:0] sync_cnt;
 	reg [7:0] gcr_byte;
@@ -136,10 +135,8 @@ always @(posedge clk32) begin
 	reg [3:0] gcr_bit_cnt;
 
 	ram_we <= 0;
-	old_track <= track;
 
-	if (old_track != track) sector <= 0;		//reset sector number on track change
-	else if (bit_clk_en) begin
+	if (bit_clk_en) begin
 		mode_r2 <= mode;
 		if (mode) autorise_write <= 0;
 
