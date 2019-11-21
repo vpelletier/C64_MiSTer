@@ -179,15 +179,14 @@ always @(posedge clk32) begin
 			gcr_bit_cnt <= gcr_bit_cnt + 1'b1;
 			if (gcr_bit_cnt == 4) begin
 				gcr_bit_cnt <= 0;
+				nibble <= ~nibble;
 				if (nibble) begin
-					nibble <= 0;
 					byte_addr <= byte_cnt[7:0];
 					if (!byte_cnt) data_cks <= 0;
 					else data_cks <= data_cks ^ data;
 
 					if (mtr & (mode | (~mode & autorise_count))) byte_cnt <= byte_cnt + 1'b1;
 				end else begin
-					nibble <= 1;
 					if (~mode && ram_di == 'h07) begin
 						autorise_write <= 1;
 						autorise_count <= 1;
