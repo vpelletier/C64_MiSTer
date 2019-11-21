@@ -130,7 +130,6 @@ always @(posedge clk32) begin
 	reg       mode_r2;
 	reg [5:0] old_track;
 	reg       autorise_write;
-	reg       autorise_count;
 	reg [5:0] sync_cnt;
 	reg [7:0] gcr_byte;
 	reg [2:0] bit_cnt;
@@ -185,15 +184,13 @@ always @(posedge clk32) begin
 					if (!byte_cnt) data_cks <= 0;
 					else data_cks <= data_cks ^ data;
 
-					if (mtr & (mode | (~mode & autorise_count))) byte_cnt <= byte_cnt + 1'b1;
+					if (mtr & (mode | autorise_write)) byte_cnt <= byte_cnt + 1'b1;
 				end else begin
 					if (~mode && ram_di == 'h07) begin
 						autorise_write <= 1;
-						autorise_count <= 1;
 					end
 					if (byte_cnt[8]) begin
 						autorise_write <= 0;
-						autorise_count <= 0;
 					end
 				end
 			end
