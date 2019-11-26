@@ -91,13 +91,13 @@ always_comb begin
 end
 
 reg bit_clk_en;
+wire [7:0] clk32_speed_zone_ratio[4] = '{
+	104, // 30.769 kHz
+	112, // 28.571 kHz
+	120, // 26.666 kHz
+	128  // 25.000 kHz
+};
 always @(posedge clk32) begin
-	wire [7:0] clk32_speed_zone_ratio[4] = '{
-		104, // 30.769 kHz
-		112, // 28.571 kHz
-		120, // 26.666 kHz
-		128  // 25.000 kHz
-	};
 	reg [7:0] bit_clk_cnt;
 	reg       mode_r1;
 
