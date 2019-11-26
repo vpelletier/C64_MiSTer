@@ -145,7 +145,7 @@ c1541_gcr c1571_gcr
 
 	.track(track),
 	.sector(sector),
-	.speed_zone(speed_zone)
+	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
 	.ram_do(buff_dout),
