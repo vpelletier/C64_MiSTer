@@ -35,17 +35,15 @@ module c1541_track
 	input         sd_buff_wr,
 
 	input         save_track,
-	input         change,
-	input   [5:0] track,
-	input   [4:0] sector,
-	input   [7:0] buff_addr,
+	input         disk_change,
+	input         side,
+	input   [6:0] half_track,
+	input  [12:0] buff_addr,
 	output  [7:0] buff_dout,
 	input   [7:0] buff_din,
 	input         buff_we,
 	output reg    busy
 );
-
-assign sd_lba = lba;
 
 always @(posedge sd_clk) begin
 	reg wr1,rd1;
@@ -57,97 +55,98 @@ always @(posedge sd_clk) begin
 	sd_rd <= rd1;
 end
 
-wire sd_b_ack = sd_ack & busy;
+wire sd_b_ack = sd_ack && busy;
 trk_dpram buffer
 (
 	.clock_a(sd_clk),
-	.address_a(sd_buff_base + base_fix + sd_buff_addr),
+	.address_a({sd_buff_base, sd_buff_addr}),
 	.data_a(sd_buff_dout),
-	.wren_a(sd_b_ack & sd_buff_wr),
+	.wren_a(sd_b_ack && sd_buff_wr),
 	.q_a(sd_buff_din),
 
 	.clock_b(clk),
-	.address_b({sector, buff_addr}),
+	.address_b(buff_addr),
 	.data_b(buff_din),
 	.wren_b(buff_we),
 	.q_b(buff_dout)
 );
 
-wire [9:0] start_sectors[41] =
-		'{  0,  0, 21, 42, 63, 84,105,126,147,168,189,210,231,252,273,294,315,336,357,376,395,
-		  414,433,452,471,490,508,526,544,562,580,598,615,632,649,666,683,700,717,734,751};
-
-reg [31:0] lba;
-reg [12:0] base_fix;
-reg [12:0] sd_buff_base;
-reg rd,wr;
+reg rd, wr;
+// Actual tracks are composed of 7692, 7142, 6666, or 6250 GCR bytes
+// (depending on physical track length).
+// The largest is 0x1e0c. As a simplification, use 0x2000-bytes tracks
+// in the file format, or 16 LBA blocks of 512 bytes.
+// sd_buff_base is the LBA block index in the track, from 0 to 15.
+// It also directly maps as the most significant bits in "buffer", which
+// contains an entire track.
+// cur_half_track is the track index in the file, from 0 to 83.
+// cur_side is the diskette side, 0 for single-sided diskettes.
+reg [3:0] sd_buff_base;
+reg [6:0] cur_half_track;
+reg       cur_side;
+assign sd_lba = {20'b0, cur_side, cur_half_track, sd_buff_base};
 
 always @(posedge clk) begin
-	reg ack1,ack2,ack;
+	reg ack1, ack2, ack;
 	reg old_ack;
-	reg [5:0] cur_track = 0;
-	reg old_change, ready = 0;
-	reg saving = 0;
+	reg old_disk_change, ready = 1'b0;
+	reg saving = 1'b0;
 
-	old_change <= change;
-	if(~old_change & change) ready <= 1;
+	old_disk_change <= disk_change;
+	if (~old_disk_change && disk_change) ready <= 1'b1;
 	
 	ack1 <= sd_b_ack;
 	ack2 <= ack1;
-	if(ack2 == ack1) ack <= ack1;
+	if (ack2 == ack1) ack <= ack1;
 
 	old_ack <= ack;
-	if(ack) {rd,wr} <= 0;
+	if (ack) {rd, wr} <= 2'b0;
 
-	if(reset) begin
-		cur_track <= 'b111111;
-		busy  <= 0;
-		rd <= 0;
-		wr <= 0;
-		saving<= 0;
-	end
-	else
-	if(busy) begin
-		if(old_ack && ~ack) begin
-			if(sd_buff_base < 'h1800) begin
-				sd_buff_base <= sd_buff_base + 13'd512;
-				lba <= lba + 1'd1;
-				if(saving) wr <= 1;
-					else rd <= 1;
-			end
-			else
-			if(saving && (cur_track != track)) begin
-				saving <= 0;
-				cur_track <= track;
-				sd_buff_base <= 0;
-				base_fix <= start_sectors[track][0] ? 13'h1F00 : 13'h0000;
-				lba <= start_sectors[track][9:1];
-				rd <= 1;
-			end
-			else
-			begin
-				busy <= 0;
+	if (reset) begin
+		cur_half_track <= 7'b0;
+		cur_side <= 1'b0;
+		busy <= 1'b0;
+		rd <= 1'b0;
+		wr <= 1'b0;
+		saving <= 1'b0;
+	end else if (busy) begin
+		if (old_ack && ~ack) begin
+			if (sd_buff_base != 4'b1111) begin
+				// read or write next block
+				sd_buff_base <= sd_buff_base + 4'b1;
+				if(saving) wr <= 1'b1;
+				else rd <= 1'b1;
+			end else if(saving && (cur_half_track != half_track || cur_side != side)) begin
+				// done writing and was changing track ? start reading new track.
+				saving <= 1'b0;
+				cur_half_track <= half_track;
+				cur_side <= side;
+				sd_buff_base <= 4'b0;
+				rd <= 1'b1;
+			end else begin
+				// done reading or writing
+				busy <= 1'b0;
 			end
 		end
-	end
-	else
-	if(ready) begin
-		if(save_track && cur_track != 'b111111) begin
-			saving <= 1;
-			sd_buff_base <= 0;
-			lba <= start_sectors[cur_track][9:1];
-			wr <= 1;
-			busy <= 1;
-		end
-		else
-		if((cur_track != track) || (old_change && ~change)) begin
-			saving <= 0;
-			cur_track <= track;
-			sd_buff_base <= 0;
-			base_fix <= start_sectors[track][0] ? 13'h1F00 : 13'h0000;
-			lba <= start_sectors[track][9:1];
-			rd <= 1;
-			busy <= 1;
+	end else if (ready) begin
+		if (save_track) begin
+			// start writing track buffer back to sdcard
+			saving <= 1'b1;
+			sd_buff_base <= 4'b0;
+			wr <= 1'b1;
+			busy <= 1'b1;
+		end else if (
+			(cur_half_track != half_track) ||
+			(cur_side != side) ||
+			(old_disk_change && ~disk_change)
+		) begin
+			// start reading sdcard to track buffer
+			saving <= 1'b0;
+			cur_half_track <= half_track;
+			cur_side <= side;
+			sd_buff_base <= 4'b0;
+			rd <= 1'b1;
+			busy <= 1'b1;
 		end
 	end
 end

@@ -144,8 +144,8 @@ assign BUTTONS   = 0;
 `include "build_id.v"
 localparam CONF_STR = {
 	"C64;;",
-	"D1S0,D64,Mount Drive #8;",
-	"D0S1,D64,Mount Drive #9;",
+	"D1S0,G64,Mount Drive #8;",
+	"D0S1,G71,Mount Drive #9;",
 	"OP,Enable Drive #9,No,Yes;",
 	"-;",
 	"F,PRG,Load File;",
@@ -874,10 +874,19 @@ wire c1541_2_iec_data;
 wire c1541_2_iec_srq_n;
 wire c1541_2_led;
 
-c1571_sd c1541_2
+assign c1541_2_iec_srq_n = 1'b1;
+//c1571_sd c1541_2
+c1541_sd c1541_2
 (
-	.clk_c1571(clk64 & ce_c1541),
+//	.clk_c1571(clk64 & ce_c1541),
+	.clk_c1541(clk64 & ce_c1541),
 	.clk_sys(clk_sys),
+
+	.rom_addr(14'b0),
+	.rom_data(8'b0),
+	.rom_wr(1'b0),
+	.rom_std(1'b1),
+	.stdrom_wr(1'b0),
 
 	.disk_change(sd_change[1]),
 	.disk_readonly(disk_readonly),
@@ -886,10 +895,10 @@ c1571_sd c1541_2
 	.iec_atn_i(c64_iec_atn | ~drive9),
 	.iec_data_i(c64_iec_data | ~drive9),
 	.iec_clk_i(c64_iec_clk | ~drive9),
-	.iec_fast_clk_i(1'b1),
+//	.iec_fast_clk_i(1'b1),
 	.iec_data_o(c1541_2_iec_data),
 	.iec_clk_o(c1541_2_iec_clk),
-	.iec_fast_clk_o(c1541_2_iec_srq_n),
+//	.iec_fast_clk_o(c1541_2_iec_srq_n),
 	.iec_reset_i(~reset_n),
 
 	.sd_lba(sd_lba2),

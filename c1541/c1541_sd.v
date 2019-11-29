@@ -78,7 +78,7 @@ always @(posedge clk_c1541) begin
 		ch_timeout <= ch_timeout - 1;
 		ch_state <= 1;
 	end else ch_state <= 0;
-	if (~prev_change & disk_change) begin
+	if (~prev_change && disk_change) begin
 		ch_timeout <= 15000000;
 		readonly <= disk_readonly;
 	end
@@ -120,7 +120,7 @@ c1541_logic c1541_logic
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 	.wps_n(~readonly ^ ch_state),
-	.tr00_sense_n(|track),
+	.tr00_sense_n(|half_track),
 	.act(act)
 );
 
@@ -131,8 +131,7 @@ wire [7:0] gcr_do;
 wire [7:0] gcr_di;
 wire       sync_n;
 wire       byte_n;
-wire [4:0] sector;
-wire [7:0] byte_addr;
+wire [12:0] byte_addr;
 
 c1541_gcr c1541_gcr
 (
@@ -145,8 +144,7 @@ c1541_gcr c1541_gcr
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 
-	.track(track),
-	.sector(sector),
+	.half_track(half_track),
 	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
@@ -176,27 +174,24 @@ c1541_track c1541_track
 	.buff_we(buff_we),
 
 	.save_track(save_track),
-	.change(disk_change),
-	.track(track),
-	.sector(sector),
+	.disk_change(disk_change),
+	.half_track(half_track),
 
 	.clk(clk_c1541),
 	.reset(reset),
 	.busy(sd_busy)
 );
 
-reg [5:0] track;
+reg [6:0] half_track;
 reg       save_track;
 always @(posedge clk_c1541) begin
 	reg       track_modified;
-	reg [6:0] half_track;
 	reg [1:0] stp_r;
 	reg       mtr_r;
 
 	stp_r <= stp;
 	mtr_r <= mtr;
 	save_track <= 0;
-	track <= half_track[6:1];
 
 	if (buff_we) track_modified <= 1;
 	if (disk_change) track_modified <= 0;
@@ -206,26 +201,26 @@ always @(posedge clk_c1541) begin
 		track_modified <= 0;
 	end else begin
 		if (mtr) begin
-			if ( (stp_r == 0 & stp == 1)
-				| (stp_r == 1 & stp == 2)
-				| (stp_r == 2 & stp == 3)
-				| (stp_r == 3 & stp == 0)) begin
-				if (half_track < 80) half_track <= half_track + 1'b1;
+			if ((stp_r == 0 && stp == 1)
+				|| (stp_r == 1 && stp == 2)
+				|| (stp_r == 2 && stp == 3)
+				|| (stp_r == 3 && stp == 0)) begin
+				if (half_track < 83) half_track <= half_track + 7'b1;
 				save_track <= track_modified;
 				track_modified <= 0;
 			end
 
-			if ( (stp_r == 0 & stp == 3)
-				| (stp_r == 3 & stp == 2)
-				| (stp_r == 2 & stp == 1)
-				| (stp_r == 1 & stp == 0)) begin
-				if (half_track > 1) half_track <= half_track - 1'b1;
+			if ((stp_r == 0 && stp == 3)
+				|| (stp_r == 3 && stp == 2)
+				|| (stp_r == 2 && stp == 1)
+				|| (stp_r == 1 && stp == 0)) begin
+				if (half_track) half_track <= half_track - 7'b1;
 				save_track <= track_modified;
 				track_modified <= 0;
 			end
 		end
 
-		if (mtr_r & ~mtr) begin		// stopping activity
+		if (mtr_r && ~mtr) begin		// stopping activity
 			save_track <= track_modified;
 			track_modified <= 0;
 		end
