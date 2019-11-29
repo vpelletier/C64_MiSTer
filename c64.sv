@@ -138,7 +138,7 @@ assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
 assign LED_DISK = 0;
 assign LED_POWER = 0;
-assign LED_USER = /*c1541_1_led |*/ c1541_2_led /*| ioctl_download | tape_led*/;
+assign LED_USER = c1541_1_led | c1541_2_led | ioctl_download | tape_led;
 assign BUTTONS   = 0;
 
 `include "build_id.v"
