@@ -9,6 +9,7 @@
 //
 module c1541_logic
 (
+   // system signals
    input        clk32,
    input        reset,
 

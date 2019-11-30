@@ -159,7 +159,7 @@ always @(posedge clk) begin
 	reg [1:0] stp_r;
 	reg       mtr_r;
 
-        tr00_sense_n <= |half_track;
+	tr00_sense_n <= |half_track;
 	stp_r <= stp;
 	mtr_r <= mtr;
 	save_track <= 0;

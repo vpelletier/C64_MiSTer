@@ -820,7 +820,7 @@ always @(posedge clk_sys) begin
 	iec_clk_d2 <= iec_clk_d1;
 	if(iec_clk_d1 == iec_clk_d2) c64_iec_clk_i <= iec_clk_d2;
 
-	iec_srq_n_d1 <= ~drive9 | c1541_2_iec_srq_n;
+	iec_srq_n_d1 <= c1541_1_iec_srq_n & (~drive9 | c1541_2_iec_srq_n);
 	iec_srq_n_d2 <= iec_srq_n_d1;
 	if(iec_srq_n_d1 == iec_srq_n_d2) c64_iec_srq_n_i <= iec_srq_n_d2;
 end
@@ -831,6 +831,7 @@ wire c64_iec_atn;
 
 wire c1541_1_iec_clk;
 wire c1541_1_iec_data;
+wire c1541_1_iec_srq_n;
 wire c1541_1_led;
 wire c1541_1_busy;
 
@@ -852,8 +853,10 @@ c1541_sd c1541_1
 	.iec_atn_i(c64_iec_atn | ~drive8),
 	.iec_data_i(c64_iec_data | ~drive8),
 	.iec_clk_i(c64_iec_clk | ~drive8),
+	.iec_fast_clk_i(1'b1),
 	.iec_data_o(c1541_1_iec_data),
 	.iec_clk_o(c1541_1_iec_clk),
+	.iec_fast_clk_o(c1541_1_iec_srq_n),
 	.iec_reset_i(~reset_n),
 
 	.sd_lba(sd_lba1),
