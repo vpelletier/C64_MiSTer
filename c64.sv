@@ -835,16 +835,16 @@ wire c1541_1_iec_srq_n;
 wire c1541_1_led;
 wire c1541_1_busy;
 
-c1541_sd c1541_1
+c1571_sd c1541_1
 (
 	.clk(clk64 & ce_c1541),
 	.clk_sys(clk_sys),
 
-	.rom_addr(ioctl_addr[13:0]),
+/*	.rom_addr(ioctl_addr[13:0]),
 	.rom_data(ioctl_data),
 	.rom_wr((ioctl_index == 0) &&  ioctl_addr[14] && ioctl_download && ioctl_wr),
 	.rom_std(status[14]),
-	.stdrom_wr(1'b0),
+	.stdrom_wr(1'b0),*/
 
 	.disk_change(sd_change[0]),
 	.disk_readonly(disk_readonly),
@@ -877,18 +877,17 @@ wire c1541_2_iec_data;
 wire c1541_2_iec_srq_n;
 wire c1541_2_led;
 
-//assign c1541_2_iec_srq_n = 1'b1;
-//c1571_sd c1541_2
 c1541_sd c1541_2
+//c1571_sd c1541_2
 (
 	.clk(clk64 & ce_c1541),
 	.clk_sys(clk_sys),
 
-/*	.rom_addr(14'b0),
+	.rom_addr(14'b0),
 	.rom_data(8'b0),
 	.rom_wr(1'b0),
 	.rom_std(1'b1),
-	.stdrom_wr(1'b0),*/
+	.stdrom_wr(1'b0),
 
 	.disk_change(sd_change[1]),
 	.disk_readonly(disk_readonly),
