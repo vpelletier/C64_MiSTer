@@ -121,19 +121,14 @@ reg [9:0] read_shift_register;
 assign sync_n = ~&{mode, read_shift_register};
 
 assign dout = read_shift_register[7:0];
-//wire [15:0] bit_addr_max = (
-//    (half_track < {6'd17, 1'd0}) ? 16'd61538: // 30.769 kHz / 5Hz (spindle rotation)
-//    (half_track < {6'd24, 1'd0}) ? 16'd57143: // 28.571 kHz / 5Hz
-//    (half_track < {6'd30, 1'd0}) ? 16'd53333: // 26.666 kHz / 5Hz
-//                                   16'd50000; // 25.000 kHz / 5Hz
 // XXX: Simulating perfect magnetic resolution: if non-standard speed zone is
 // requested, shorter tracks will still be able to fit as many bits as longer
 // tracks.
 wire [15:0] bit_addr_max[4] = '{
-    16'd50000 - 1, // 25.000 kHz / 5Hz
-    16'd53333 - 1, // 26.666 kHz / 5Hz
-    16'd57143 - 1, // 28.571 kHz / 5Hz
-    16'd61538 - 1  // 30.769 kHz / 5Hz
+    16'd50000 - 1, // 25.000 kHz / 5Hz (spindle rotation)
+    16'd53336 - 1, // 26.666 kHz / 5Hz, rounded to nearest whole byte (+3 bits)
+    16'd57144 - 1, // 28.571 kHz / 5Hz, rounded to nearest whole byte (+1 bit)
+    16'd61536 - 1  // 30.769 kHz / 5Hz, rounded to nearest whole byte (-2 bits)
 };
 
 reg [15:0] bit_addr;
