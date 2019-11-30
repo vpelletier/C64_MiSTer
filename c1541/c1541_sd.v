@@ -88,7 +88,9 @@ wire       mode; // read/write
 wire [1:0] stp;
 wire       mtr;
 wire       act;
+wire       soe;
 wire [1:0] speed_zone;
+wire       wps_n = ~readonly ^ ch_state;
 
 c1541_logic c1541_logic
 (
@@ -116,10 +118,11 @@ c1541_logic c1541_logic
 	.mode(mode),
 	.stp(stp),
 	.mtr(mtr),
+	.soe(soe),
 	.speed_zone(speed_zone),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
-	.wps_n(~readonly ^ ch_state),
+	.wps_n(wps_n),
 	.tr00_sense_n(|half_track),
 	.act(act)
 );
@@ -141,10 +144,12 @@ c1541_gcr c1541_gcr
 	.din(gcr_di),
 	.mode(mode),
 	.mtr(mtr),
+	.soe(soe),
+	.wps_n(wps_n),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 
-	.half_track(half_track),
+//	.half_track(half_track),
 	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
@@ -175,6 +180,7 @@ c1541_track c1541_track
 
 	.save_track(save_track),
 	.disk_change(disk_change),
+	.side(1'b0),
 	.half_track(half_track),
 
 	.clk(clk_c1541),

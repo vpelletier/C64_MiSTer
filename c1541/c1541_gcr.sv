@@ -15,87 +15,148 @@
 //
 //-------------------------------------------------------------------------------
 
+module sn74ls193 (
+    input            clk,
+
+    input            up,
+    input            down,
+    input      [3:0] data_in,
+    input            clr,
+    input            load_n,
+
+    output reg       carry_n,
+    output reg       borrow_n,
+    output reg [3:0] data_out
+);
+always @(posedge clk) begin
+    reg up1, down1;
+    up1 <= up;
+    down1 <= down;
+    borrow_n <= |{down, data_out};
+    carry_n <= ~&{data_out, ~up};
+    if (clr) data_out <= 4'b0;
+    else if (~load_n) data_out <= data_in;
+    else if (up1 && ~up) data_out <= data_out + 4'b1;
+    else if (down1 && ~down) data_out <= data_out - 4'b1;
+    // else, no change
+end
+endmodule
+
 module c1541_gcr
 (
-   input            clk32,
+    input               clk32,
 
-   output     [7:0] dout,		// data from ram to 1541 logic
-   input      [7:0] din,		// data from 1541 logic to ram
-   input            mode,		// read/write
-   input            mtr,		// spindle motor on/off
-   output           sync_n,		// reading SYNC bytes
-   output reg       byte_n,		// byte ready
+    output        [7:0] dout,           // data from ram to 1541 logic
+    input         [7:0] din,            // data from 1541 logic to ram
+    input               mode,           // read/write
+    input               mtr,            // spindle motor on/off
+    input               soe,            // serial output enable
+    input               wps_n,          // write-protect
+    output              sync_n,         // reading SYNC bytes
+    output reg          byte_n,         // byte ready
 
-   input      [6:0] half_track,
-   input      [1:0] speed_zone,
+//    input         [6:0] half_track,
+    input         [1:0] speed_zone,
 
-   output    [12:0] byte_addr,
-   input      [7:0] ram_do,
-   output reg [7:0] ram_di,
-   output reg       ram_we,
-
-   input            ram_ready
+    output reg   [12:0] byte_addr,
+    input         [7:0] ram_do,
+    output reg    [7:0] ram_di,
+    output reg          ram_we,
+    input               ram_ready
 );
 
-reg bit_clock;
-reg [7:0] bit_clk_cnt;
-reg [15:0] bit_addr;
-//reg [2:0] bit_count;
+reg clk16; // c1541 internal crystal
+always @(posedge clk32) clk16 <= clk16 + 1'b1;
+
+wire raw_bit_clock;
+sn74ls193 raw_bit_clock_ic(
+    .clk(clk32),
+    .up(clk16),
+    .down(1'b1),
+    .data_in({2'b0, speed_zone}),
+    .clr(1'b0),
+    .load_n(raw_bit_clock & ram_ready & mtr),
+
+    .carry_n(raw_bit_clock),
+    .borrow_n(), // (n/c)
+    .data_out()  // (n/c)
+);
+
+// state counter:
+// state[0] clocks parallel input on byte boundary and high state[1]
+// state[1] clocks bit counter, bit shifters, and when low clocks byte ready
+//          and (in real hardware) is mixed with serial output
+// ~|state[3:2] is the serial bit input, which we do not need as we control bit address
+wire [1:0] state;
+sn74ls193 state_counter_ic(
+    .clk(clk32),
+    .up(~raw_bit_clock),
+    .down(1'b1),
+    .data_in(4'b0),
+    .clr(~(ram_ready & mtr)),
+    .load_n(1'b1),
+
+    .carry_n(), // (n/c)
+    .borrow_n(), // (n/c)
+    .data_out({2'bx, state})
+);
+
+reg parallel_to_serial_load_edge;
+reg bit_clock_posedge;
+reg bit_clock_negedge;
+always @(posedge clk32) begin
+    reg parallel_to_serial_load1;
+    reg bit_clock1;
+    bit_clock1 <= state[1];
+    bit_clock_negedge <= bit_clock1 && !state[1];
+    bit_clock_posedge <= !bit_clock1 && state[1];
+    parallel_to_serial_load1 <= parallel_to_serial_load;
+    parallel_to_serial_load_edge <= !parallel_to_serial_load1 && parallel_to_serial_load;
+end
+
+reg [2:0] bit_count;
+wire whole_byte = &bit_count;
+wire parallel_to_serial_load = &{whole_byte, state[1], state[0]};
 reg [9:0] read_shift_register;
 assign sync_n = ~&{mode, read_shift_register};
-assign byte_addr = bit_addr[15:3];
+
 assign dout = read_shift_register[7:0];
-//wire whole_byte = bit_count == 3'b111;
-// XXX: this is not strictly correct: a track is a bit stream, not a byte stream.
-// Fixing this requires changing trk_dpram.
-wire whole_byte = sync_n || (bit_addr[2:0] == 3'b111);
-//wire [15:0] bit_addr_max = (half_track < {6'd17, 1'd0}) ? 16'd61538: // 30.769 kHz / 5Hz (spindle rotation)
-//			   (half_track < {6'd24, 1'd0}) ? 16'd57143: // 28.571 kHz / 5Hz
-//			   (half_track < {6'd30, 1'd0}) ? 16'd53333: // 26.666 kHz / 5Hz
-//							  16'd50000; // 25.000 kHz / 5Hz
-wire [7:0] clk32_speed_zone_ratio[4] = '{
-	128 - 1, // speed zone 0: 25.000 kHz (from spec)
-	120 - 1, // speed zone 1: 26.666 kHz (from spec)
-	112 - 1, // speed zone 2: 28.571 kHz (from spec)
-	104 - 1  // speed zone 3: 30.769 kHz (from spec)
-};
+//wire [15:0] bit_addr_max = (
+//    (half_track < {6'd17, 1'd0}) ? 16'd61538: // 30.769 kHz / 5Hz (spindle rotation)
+//    (half_track < {6'd24, 1'd0}) ? 16'd57143: // 28.571 kHz / 5Hz
+//    (half_track < {6'd30, 1'd0}) ? 16'd53333: // 26.666 kHz / 5Hz
+//                                   16'd50000; // 25.000 kHz / 5Hz
 // XXX: Simulating perfect magnetic resolution: if non-standard speed zone is
 // requested, shorter tracks will still be able to fit as many bits as longer
 // tracks.
 wire [15:0] bit_addr_max[4] = '{
-	16'd50000 - 1, // 25.000 kHz / 5Hz
-	16'd53333 - 1, // 26.666 kHz / 5Hz
-	16'd57143 - 1, // 28.571 kHz / 5Hz
-	16'd61538 - 1  // 30.769 kHz / 5Hz
+    16'd50000 - 1, // 25.000 kHz / 5Hz
+    16'd53333 - 1, // 26.666 kHz / 5Hz
+    16'd57143 - 1, // 28.571 kHz / 5Hz
+    16'd61538 - 1  // 30.769 kHz / 5Hz
 };
-always @(posedge clk32) begin
-	bit_clock <= 0;
-	if (mtr && ram_ready) begin
-		if (bit_clk_cnt >= clk32_speed_zone_ratio[speed_zone]) begin
-//			bit_clk_cnt <= bit_clk_cnt - clk32_speed_zone_ratio[speed_zone];
-			bit_clk_cnt <= 0;
-			bit_clock <= 1;
-		end else
-			bit_clk_cnt <= bit_clk_cnt + 8'b1;
-	end
-end
 
+reg [15:0] bit_addr;
+assign byte_addr = bit_addr[15:3];
 always @(posedge clk32) begin
-	if (bit_clock) begin
-		bit_addr <= bit_addr < bit_addr_max[speed_zone] ? bit_addr + 16'b1 : 16'b0;
-		// TODO: check the speed at which data was written and decide how to read it if read speed does not match
-		read_shift_register <= {read_shift_register[8:0], ram_do[3'b111 - bit_addr[2:0]]};
-//		bit_count <= sync_n ? bit_count + 3'b1 : 3'b0;
-		ram_we <= ~mode && whole_byte;
-		// XXX: what is UF4 QA ?
-		if (whole_byte) begin
-			// TODO: save writing speed
-			ram_di <= din;
-		end
-	end else begin
-		// XXX: soe is added in _logic
-		byte_n <= ~whole_byte;
-	end
+    if (bit_clock_posedge) begin
+        bit_count <= sync_n ? bit_count + 3'b1 : 3'b0;
+        // TODO: check the speed at which data was written and decide how to read it if read speed does not match
+        read_shift_register <= {read_shift_register[8:0], ram_do[3'b111 - bit_addr[2:0]]};
+        ram_we <= (~mode && wps_n);
+    end
+    if (bit_clock_negedge) begin
+        bit_addr <= (
+            bit_addr < bit_addr_max[speed_zone] ?
+            bit_addr + 16'b1 :
+            16'b0
+        );
+        byte_n <= ~&{whole_byte, soe};
+    end
+    if (parallel_to_serial_load_edge) begin
+        // TODO: save writing speed
+        ram_di <= din;
+    end
 end
 
 endmodule
