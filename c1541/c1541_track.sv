@@ -34,10 +34,11 @@ module c1541_track
 	output  [7:0] sd_buff_din,
 	input         sd_buff_wr,
 
-	input         save_track,
 	input         disk_change,
 	input         side,
-	input   [6:0] half_track,
+	input   [1:0] stp,
+	input         mtr,
+	output        tr00_sense_n,
 	input  [12:0] buff_addr,
 	output  [7:0] buff_dout,
 	input   [7:0] buff_din,
@@ -151,6 +152,51 @@ always @(posedge clk) begin
 	end
 end
 
+reg [6:0] half_track;
+reg       save_track;
+always @(posedge clk) begin
+	reg       track_modified;
+	reg [1:0] stp_r;
+	reg       mtr_r;
+
+        tr00_sense_n <= |half_track;
+	stp_r <= stp;
+	mtr_r <= mtr;
+	save_track <= 0;
+
+	if (buff_we) track_modified <= 1;
+	if (disk_change) track_modified <= 0;
+
+	if (reset) begin
+		half_track <= 36;
+		track_modified <= 0;
+	end else begin
+		if (mtr) begin
+			if ((stp_r == 0 && stp == 1)
+				|| (stp_r == 1 && stp == 2)
+				|| (stp_r == 2 && stp == 3)
+				|| (stp_r == 3 && stp == 0)) begin
+				if (half_track < 83) half_track <= half_track + 7'b1;
+				save_track <= track_modified;
+				track_modified <= 0;
+			end
+
+			if ((stp_r == 0 && stp == 3)
+				|| (stp_r == 3 && stp == 2)
+				|| (stp_r == 2 && stp == 1)
+				|| (stp_r == 1 && stp == 0)) begin
+				if (half_track) half_track <= half_track - 7'b1;
+				save_track <= track_modified;
+				track_modified <= 0;
+			end
+		end
+
+		if (mtr_r && ~mtr) begin		// stopping activity
+			save_track <= track_modified;
+			track_modified <= 0;
+		end
+	end
+end
 endmodule
 
 module trk_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=13)

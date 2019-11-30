@@ -19,8 +19,7 @@
 
 module c1541_sd
 (
-	//clk_c1541 ports
-	input         clk_c1541,
+	input         clk,
 
 	input         disk_change,
 	input         disk_readonly,
@@ -31,8 +30,10 @@ module c1541_sd
 	input         iec_atn_i,
 	input         iec_data_i,
 	input         iec_clk_i,
+	input         iec_fast_clk_i,
 	output        iec_data_o,
 	output        iec_clk_o,
+	output        iec_fast_clk_o,
 
 	//clk_sys ports
 	input         clk_sys,
@@ -61,7 +62,7 @@ assign led = act | sd_busy;
 // Sector number (0-20)
 
 reg reset;
-always @(posedge clk_c1541) begin
+always @(posedge clk) begin
 	reg reset_r;
 	reset_r <= iec_reset_i;
 	reset <= reset_r;
@@ -69,7 +70,7 @@ end
 
 reg readonly = 0;
 reg ch_state;
-always @(posedge clk_c1541) begin
+always @(posedge clk) begin
 	integer ch_timeout;
 	reg     prev_change;
 
@@ -89,20 +90,24 @@ wire [1:0] stp;
 wire       mtr;
 wire       act;
 wire       soe;
+wire       side;
 wire [1:0] speed_zone;
 wire       wps_n = ~readonly ^ ch_state;
+wire       tr00_sense_n;
 
-c1541_logic c1541_logic
+c1541_logic drive_logic
 (
-	.clk32(clk_c1541),
+	.clk32(clk),
 	.reset(reset),
 
 	// serial bus
 	.sb_clk_in(iec_clk_i),
 	.sb_data_in(iec_data_i),
 	.sb_atn_in(iec_atn_i),
+	.sb_fast_clk_in(iec_fast_clk_i),
 	.sb_clk_out(iec_clk_o),
 	.sb_data_out(iec_data_o),
+	.sb_fast_clk_out(iec_fast_clk_o),
 
 	.c1541rom_clk(clk_sys),
 	.c1541rom_addr(rom_addr),
@@ -112,7 +117,6 @@ c1541_logic c1541_logic
 	.c1541std(rom_std),
 
 	// drive-side interface
-	.ds(drive_num),
 	.din(gcr_do),
 	.dout(gcr_di),
 	.mode(mode),
@@ -120,10 +124,13 @@ c1541_logic c1541_logic
 	.mtr(mtr),
 	.soe(soe),
 	.speed_zone(speed_zone),
+	.side(side),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 	.wps_n(wps_n),
-	.tr00_sense_n(|half_track),
+	.tr00_sense_n(tr00_sense_n),
+
+	.ds(drive_num),
 	.act(act)
 );
 
@@ -136,9 +143,9 @@ wire       sync_n;
 wire       byte_n;
 wire [12:0] byte_addr;
 
-c1541_gcr c1541_gcr
+c1541_gcr gcr
 (
-	.clk32(clk_c1541),
+	.clk32(clk),
 
 	.dout(gcr_do),
 	.din(gcr_di),
@@ -149,7 +156,6 @@ c1541_gcr c1541_gcr
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 
-//	.half_track(half_track),
 	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
@@ -160,7 +166,7 @@ c1541_gcr c1541_gcr
 	.ram_ready(~sd_busy)
 );
 
-c1541_track c1541_track
+c1541_track track
 (
 	.sd_clk(clk_sys),
 	.sd_lba(sd_lba),
@@ -178,59 +184,14 @@ c1541_track c1541_track
 	.buff_din(buff_din),
 	.buff_we(buff_we),
 
-	.save_track(save_track),
 	.disk_change(disk_change),
-	.side(1'b0),
-	.half_track(half_track),
+	.side(side),
+	.stp(stp),
+	.mtr(mtr),
+	.tr00_sense_n(tr00_sense_n),
 
-	.clk(clk_c1541),
+	.clk(clk),
 	.reset(reset),
 	.busy(sd_busy)
 );
-
-reg [6:0] half_track;
-reg       save_track;
-always @(posedge clk_c1541) begin
-	reg       track_modified;
-	reg [1:0] stp_r;
-	reg       mtr_r;
-
-	stp_r <= stp;
-	mtr_r <= mtr;
-	save_track <= 0;
-
-	if (buff_we) track_modified <= 1;
-	if (disk_change) track_modified <= 0;
-
-	if (reset) begin
-		half_track <= 36;
-		track_modified <= 0;
-	end else begin
-		if (mtr) begin
-			if ((stp_r == 0 && stp == 1)
-				|| (stp_r == 1 && stp == 2)
-				|| (stp_r == 2 && stp == 3)
-				|| (stp_r == 3 && stp == 0)) begin
-				if (half_track < 83) half_track <= half_track + 7'b1;
-				save_track <= track_modified;
-				track_modified <= 0;
-			end
-
-			if ((stp_r == 0 && stp == 3)
-				|| (stp_r == 3 && stp == 2)
-				|| (stp_r == 2 && stp == 1)
-				|| (stp_r == 1 && stp == 0)) begin
-				if (half_track) half_track <= half_track - 7'b1;
-				save_track <= track_modified;
-				track_modified <= 0;
-			end
-		end
-
-		if (mtr_r && ~mtr) begin		// stopping activity
-			save_track <= track_modified;
-			track_modified <= 0;
-		end
-	end
-end
-
 endmodule

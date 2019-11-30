@@ -16,8 +16,10 @@ module c1541_logic
    input        sb_clk_in,
    input        sb_data_in,
    input        sb_atn_in,
+   input        sb_fast_clk_in,
    output       sb_clk_out,
    output       sb_data_out,
+   output       sb_fast_clk_out,
 
    input        c1541rom_clk,
    input [13:0] c1541rom_addr,
@@ -34,6 +36,7 @@ module c1541_logic
    output       mtr,            // spindle motor on/off
    output       soe,            // serial output enable
    output [1:0] speed_zone,     // bit clock adjustment for track density
+   output       side,           // disk side
    input        sync_n,         // reading SYNC bytes
    input        byte_n,         // byte ready
    input        wps_n,          // write-protect sense
@@ -46,6 +49,7 @@ module c1541_logic
 
 assign sb_data_out = ~(uc1_pb_o[1] | uc1_pb_oe_n[1]) & ~((uc1_pb_o[4] | uc1_pb_oe_n[4]) ^ ~sb_atn_in);
 assign sb_clk_out  = ~(uc1_pb_o[3] | uc1_pb_oe_n[3]);
+assign sb_fast_clk_out = 1'b1;
 
 assign dout = uc3_pa_o | uc3_pa_oe_n;
 assign soe  = uc3_ca2_o | uc3_ca2_oe_n;
@@ -55,6 +59,7 @@ assign stp        = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
 assign mtr        = uc3_pb_o[2] | uc3_pb_oe_n[2];
 assign act        = uc3_pb_o[3] | uc3_pb_oe_n[3];
 assign speed_zone = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];
+assign side       = 1'b0;
 
 
 reg iec_atn;
@@ -200,7 +205,6 @@ c1541_via6522 uc1
 	.rising(p2_h_r),
 	.falling(p2_h_f)
 );
-
 
 // UC3 (VIA6522) signals
 wire [7:0] uc3_do;

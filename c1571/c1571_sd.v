@@ -20,8 +20,7 @@
 
 module c1571_sd
 (
-	//clk_c1571 ports
-	input         clk_c1571,
+	input         clk,
 
 	input         disk_change,
 	input         disk_readonly,
@@ -61,7 +60,7 @@ assign led = act | sd_busy;
 // Sector number (0-20)
 
 reg reset;
-always @(posedge clk_c1571) begin
+always @(posedge clk) begin
 	reg reset_r;
 	reset_r <= iec_reset_i;
 	reset <= reset_r;
@@ -69,7 +68,7 @@ end
 
 reg readonly = 0;
 reg ch_state;
-always @(posedge clk_c1571) begin
+always @(posedge clk) begin
 	integer ch_timeout;
 	reg     prev_change;
 
@@ -78,7 +77,7 @@ always @(posedge clk_c1571) begin
 		ch_timeout <= ch_timeout - 1;
 		ch_state <= 1;
 	end else ch_state <= 0;
-	if (~prev_change & disk_change) begin
+	if (~prev_change && disk_change) begin
 		ch_timeout <= 15000000;
 		readonly <= disk_readonly;
 	end
@@ -88,12 +87,15 @@ wire       mode; // read/write
 wire [1:0] stp;
 wire       mtr;
 wire       act;
+wire       soe;
 wire       side;
 wire [1:0] speed_zone;
+wire       wps_n = ~readonly ^ ch_state;
+wire       tr00_sense_n;
 
-c1571_logic c1571_logic
+c1571_logic drive_logic
 (
-	.clk32(clk_c1571),
+	.clk32(clk),
 	.reset(reset),
 
 	// serial bus
@@ -111,12 +113,13 @@ c1571_logic c1571_logic
 	.mode(mode),
 	.stp(stp),
 	.mtr(mtr),
+	.soe(soe),
 	.speed_zone(speed_zone),
 	.side(side),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
-	.wps_n(~readonly ^ ch_state),
-	.tr00_sense_n(|track),
+	.wps_n(wps_n),
+	.tr00_sense_n(tr00_sense_n),
 
 	.ds(drive_num),
 	.act(act)
@@ -129,22 +132,21 @@ wire [7:0] gcr_do;
 wire [7:0] gcr_di;
 wire       sync_n;
 wire       byte_n;
-wire [4:0] sector;
-wire [7:0] byte_addr;
+wire [12:0] byte_addr;
 
-c1541_gcr c1571_gcr
+c1541_gcr gcr
 (
-	.clk32(clk_c1571),
+	.clk32(clk),
 
 	.dout(gcr_do),
 	.din(gcr_di),
 	.mode(mode),
 	.mtr(mtr),
+	.soe(soe),
+	.wps_n(wps_n),
 	.sync_n(sync_n),
 	.byte_n(byte_n),
 
-	.track(track),
-	.sector(sector),
 	.speed_zone(speed_zone),
 
 	.byte_addr(byte_addr),
@@ -155,7 +157,7 @@ c1541_gcr c1571_gcr
 	.ram_ready(~sd_busy)
 );
 
-c1571_track c1571_track
+c1541_track track
 (
 	.sd_clk(clk_sys),
 	.sd_lba(sd_lba),
@@ -173,62 +175,14 @@ c1571_track c1571_track
 	.buff_din(buff_din),
 	.buff_we(buff_we),
 
-	.save_track(save_track),
-	.change(disk_change),
+	.disk_change(disk_change),
 	.side(side),
-	.track(track),
-	.sector(sector),
+	.stp(stp),
+	.mtr(mtr),
+	.tr00_sense_n(tr00_sense_n),
 
-	.clk(clk_c1571),
+	.clk(clk),
 	.reset(reset),
 	.busy(sd_busy)
 );
-
-reg [5:0] track;
-reg       save_track;
-always @(posedge clk_c1571) begin
-	reg       track_modified;
-	reg [6:0] half_track;
-	reg [1:0] stp_r;
-	reg       mtr_r;
-
-	stp_r <= stp;
-	mtr_r <= mtr;
-	save_track <= 0;
-	track <= half_track[6:1];
-
-	if (buff_we) track_modified <= 1;
-	if (disk_change) track_modified <= 0;
-
-	if (reset) begin
-		half_track <= 36;
-		track_modified <= 0;
-	end else begin
-		if (mtr) begin
-			if ( (stp_r == 0 & stp == 1)
-				| (stp_r == 1 & stp == 2)
-				| (stp_r == 2 & stp == 3)
-				| (stp_r == 3 & stp == 0)) begin
-				if (half_track < 68) half_track <= half_track + 1'b1;
-				save_track <= track_modified;
-				track_modified <= 0;
-			end
-
-			if ( (stp_r == 0 & stp == 3)
-				| (stp_r == 3 & stp == 2)
-				| (stp_r == 2 & stp == 1)
-				| (stp_r == 1 & stp == 0)) begin
-				if (half_track > 1) half_track <= half_track - 1'b1;
-				save_track <= track_modified;
-				track_modified <= 0;
-			end
-		end
-
-		if (mtr_r & ~mtr) begin		// stopping activity
-			save_track <= track_modified;
-			track_modified <= 0;
-		end
-	end
-end
-
 endmodule

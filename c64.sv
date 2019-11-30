@@ -836,7 +836,7 @@ wire c1541_1_busy;
 
 c1541_sd c1541_1
 (
-	.clk_c1541(clk64 & ce_c1541),
+	.clk(clk64 & ce_c1541),
 	.clk_sys(clk_sys),
 
 	.rom_addr(ioctl_addr[13:0]),

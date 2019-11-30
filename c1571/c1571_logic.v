@@ -29,6 +29,7 @@ module c1571_logic
    output       mode,           // 1=read, 0=write
    output [1:0] stp,            // stepper motor control
    output       mtr,            // spindle motor on/off
+   output       soe,            // serial output enable
    output [1:0] speed_zone,     // bit clock adjustment for track density
    output       side,           // disk side
    input        sync_n,         // reading SYNC bytes
@@ -46,6 +47,7 @@ assign sb_clk_out  = ~(uc9_pb_o[3] | uc9_pb_oe_n[3]);
 assign sb_fast_clk_out = (uc20_sb_fast_clk_out | ~fast_serial_dir_out);
 
 assign dout = uc4_pa_o | uc4_pa_oe_n;
+assign soe  = uc4_ca2_o | uc4_ca2_oe_n;
 assign mode = uc4_cb2_o | uc4_cb2_oe_n;
 
 // XXX: U6 input is different, but U4 stp also goes directly to U7 and U22
@@ -133,8 +135,7 @@ wire        cpu_irq_n = uc4_irq_n & uc9_irq_n & uc20_irq_n;
 // Mode is selected using U6 TED input, which is:
 //   U18 _4Q | (U4 _CS2 | PHI_1(trailing))
 // PHI_1 being ~PHI_2, but only keep the edge, so PHI_2(raising)
-//wire        byte_rdy_n = byte_n | ((~uc18_4q | ~uc4_cs | p2_h_r) & ~soe);
-wire        byte_rdy_n = byte_n | ~soe;
+//wire        byte_n = |{byte_n, ~uc18_4q, ~uc4_cs, p2_h_r};
 
 T65 cpu
 (
@@ -146,7 +147,7 @@ T65 cpu
 	.abort_n(1'b1),
 	.irq_n(cpu_irq_n),
 	.nmi_n(1'b1),
-	.so_n(byte_rdy_n),
+	.so_n(byte_n),
 	.r_w_n(cpu_rw),
 	.sync(),
 	.ef(),
@@ -203,7 +204,7 @@ c1541_via6522 uc9
 	.ca2_o(),
 	.ca2_t_l(),
 
-	.port_a_i({byte_rdy_n, 6'd0, tr00_sense_n}),
+	.port_a_i({byte_n, 6'd0, tr00_sense_n}),
 	.port_a_o(uc9_pa_o),
 	.port_a_t_l(uc9_pa_oe_n),
 
@@ -236,7 +237,6 @@ wire       uc4_cb2_oe_n;
 wire [7:0] uc4_pa_oe_n;
 wire [7:0] uc4_pb_o;
 wire [7:0] uc4_pb_oe_n;
-wire       soe = uc4_ca2_o | uc4_ca2_oe_n;
 
 c1541_via6522 uc4
 (
@@ -252,7 +252,7 @@ c1541_via6522 uc4
 	.irq_l(uc4_irq_n),
 
 	// port a
-	.ca1_i(byte_rdy_n),
+	.ca1_i(byte_n),
 	.ca2_i(1'b0),
 	.ca2_o(uc4_ca2_o),
 	.ca2_t_l(uc4_ca2_oe_n),
