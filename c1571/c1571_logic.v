@@ -105,8 +105,8 @@ end
 // Memory map from "1571 service manual preliminary October 1986 - PN-314002-04",
 // except RAM does not stop at 0x7FF as cpu_a[11] is connected to neither U3 nor U5.
 wire ram_cs  = cpu_a[15:12] == 4'b0000__; // RAME: U3  $0000-$0FFF (2KB + mirror)
-wire uc9_cs  = cpu_a[15:10] == 5'b000110; // IO2 : U9  $1800-$1BFF (16B + mirrors)
-wire uc4_cs  = cpu_a[15:10] == 5'b000111; // IO1 : U4  $1C00-$1FFF (16B + mirrors)
+wire uc9_cs  = cpu_a[15:10] == 6'b000110; // IO2 : U9  $1800-$1BFF (16B + mirrors)
+wire uc4_cs  = cpu_a[15:10] == 6'b000111; // IO1 : U4  $1C00-$1FFF (16B + mirrors)
 // XXX: real hardware OR's this with PHI_1
 wire uc11_cs = cpu_a[15:13] == 3'b001___; // CS1 : U11 $2000-$3FFF (4B + mirrors)
 wire uc20_cs = cpu_a[15:14] == 2'b01____; // CS2 : U20 $4000-$7FFF (16B + mirrors)
