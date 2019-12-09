@@ -1,3 +1,4 @@
+set_global_assignment -name VERILOG_FILE lfsr.v
 set_global_assignment -name QIP_FILE sid6581/sid.qip
 set_global_assignment -name QIP_FILE sid8580/sid.qip
 set_global_assignment -name QIP_FILE opl3/opl3.qip

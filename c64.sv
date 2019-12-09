@@ -144,8 +144,8 @@ assign BUTTONS   = 0;
 `include "build_id.v"
 localparam CONF_STR = {
 	"C64;;",
-	"S0,D64,Mount Drive #8;",
-	"D0S1,D64,Mount Drive #9;",
+	"S0,I64,Mount Drive #8;",
+	"D0S1,I64,Mount Drive #9;",
 	"OP,Enable Drive #9,No,Yes;",
 	"-;",
 	"F,PRG,Load File;",
