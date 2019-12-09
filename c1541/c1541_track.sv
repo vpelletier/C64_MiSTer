@@ -34,18 +34,17 @@ module c1541_track
 	output  [7:0] sd_buff_din,
 	input         sd_buff_wr,
 
-	input         save_track,
-	input         change,
-	input   [5:0] track,
-	input   [4:0] sector,
-	input   [7:0] buff_addr,
+	input         disk_change,
+	input   [1:0] stp,
+	input         mtr,
+	input         act,
+	output        tr00_sense_n,
+	input  [12:0] buff_addr,
 	output  [7:0] buff_dout,
 	input   [7:0] buff_din,
 	input         buff_we,
 	output reg    busy
 );
-
-assign sd_lba = lba;
 
 always @(posedge sd_clk) begin
 	reg wr1,rd1;
@@ -61,36 +60,31 @@ wire sd_b_ack = sd_ack & busy;
 trk_dpram buffer
 (
 	.clock_a(sd_clk),
-	.address_a(sd_buff_base + base_fix + sd_buff_addr),
+	.address_a({sd_buff_base, sd_buff_addr}),
 	.data_a(sd_buff_dout),
 	.wren_a(sd_b_ack & sd_buff_wr),
 	.q_a(sd_buff_din),
 
 	.clock_b(clk),
-	.address_b({sector, buff_addr}),
+	.address_b(buff_addr),
 	.data_b(buff_din),
 	.wren_b(buff_we),
 	.q_b(buff_dout)
 );
 
-wire [9:0] start_sectors[41] =
-		'{  0,  0, 21, 42, 63, 84,105,126,147,168,189,210,231,252,273,294,315,336,357,376,395,
-		  414,433,452,471,490,508,526,544,562,580,598,615,632,649,666,683,700,717,734,751};
-
-reg [31:0] lba;
-reg [12:0] base_fix;
-reg [12:0] sd_buff_base;
+reg [3:0] sd_buff_base;
+reg [6:0] cur_half_track;
+assign sd_lba = {cur_half_track, sd_buff_base};
 reg rd,wr;
 
 always @(posedge clk) begin
 	reg ack1,ack2,ack;
 	reg old_ack;
-	reg [5:0] cur_track = 0;
-	reg old_change, ready = 0;
+	reg old_disk_change, ready = 0;
 	reg saving = 0;
 
-	old_change <= change;
-	if(~old_change & change) ready <= 1;
+	old_disk_change <= disk_change;
+	if (~old_disk_change && disk_change) ready <= 1;
 	
 	ack1 <= sd_b_ack;
 	ack2 <= ack1;
@@ -100,7 +94,7 @@ always @(posedge clk) begin
 	if(ack) {rd,wr} <= 0;
 
 	if(reset) begin
-		cur_track <= 'b111111;
+		cur_half_track <= 0;
 		busy  <= 0;
 		rd <= 0;
 		wr <= 0;
@@ -109,19 +103,16 @@ always @(posedge clk) begin
 	else
 	if(busy) begin
 		if(old_ack && ~ack) begin
-			if(sd_buff_base < 'h1800) begin
-				sd_buff_base <= sd_buff_base + 13'd512;
-				lba <= lba + 1'd1;
+			if(sd_buff_base != 4'b1111) begin
+				sd_buff_base <= sd_buff_base + 4'b1;
 				if(saving) wr <= 1;
 					else rd <= 1;
 			end
 			else
-			if(saving && (cur_track != track)) begin
+			if(saving && (cur_half_track != half_track)) begin
 				saving <= 0;
-				cur_track <= track;
+				cur_half_track <= half_track;
 				sd_buff_base <= 0;
-				base_fix <= start_sectors[track][0] ? 13'h1F00 : 13'h0000;
-				lba <= start_sectors[track][9:1];
 				rd <= 1;
 			end
 			else
@@ -132,26 +123,71 @@ always @(posedge clk) begin
 	end
 	else
 	if(ready) begin
-		if(save_track && cur_track != 'b111111) begin
+		if(save_track) begin
 			saving <= 1;
 			sd_buff_base <= 0;
-			lba <= start_sectors[cur_track][9:1];
 			wr <= 1;
 			busy <= 1;
 		end
 		else
-		if((cur_track != track) || (old_change && ~change)) begin
+		if (
+			(cur_half_track != half_track) ||
+			(old_disk_change && ~disk_change)
+		) begin
 			saving <= 0;
-			cur_track <= track;
+			cur_half_track <= half_track;
 			sd_buff_base <= 0;
-			base_fix <= start_sectors[track][0] ? 13'h1F00 : 13'h0000;
-			lba <= start_sectors[track][9:1];
 			rd <= 1;
 			busy <= 1;
 		end
 	end
 end
 
+reg [6:0] half_track;
+reg       save_track;
+always @(posedge clk) begin
+	reg       track_modified;
+	reg [1:0] stp_r;
+	reg       act_r;
+
+	tr00_sense_n <= |half_track;
+	stp_r <= stp;
+	act_r <= act;
+	save_track <= 0;
+
+	if (buff_we) track_modified <= 1;
+	if (disk_change) track_modified <= 0;
+
+	if (reset) begin
+		half_track <= 36;
+		track_modified <= 0;
+	end else begin
+		if (mtr) begin
+			if ((stp_r == 0 && stp == 1)
+				|| (stp_r == 1 && stp == 2)
+				|| (stp_r == 2 && stp == 3)
+				|| (stp_r == 3 && stp == 0)) begin
+				if (half_track < 83) half_track <= half_track + 7'b1;
+				save_track <= track_modified;
+				track_modified <= 0;
+			end
+
+			if ((stp_r == 0 && stp == 3)
+				|| (stp_r == 3 && stp == 2)
+				|| (stp_r == 2 && stp == 1)
+				|| (stp_r == 1 && stp == 0)) begin
+				if (half_track) half_track <= half_track - 7'b1;
+				save_track <= track_modified;
+				track_modified <= 0;
+			end
+		end
+
+		if (act_r && ~act) begin		// stopping activity
+			save_track <= track_modified;
+			track_modified <= 0;
+		end
+	end
+end
 endmodule
 
 module trk_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=13)

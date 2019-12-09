@@ -33,7 +33,8 @@ module c1541_logic
    output       mode,		// 1=read, 0=write
    output [1:0] stp,			// stepper motor control
    output       mtr,			// spindle motor on/off
-   output [1:0] freq,		// motor frequency
+   output       soe,			// serial output enable
+   output [1:0] speed_zone,	// bit clock adjustment for track density
    input        sync_n,		// reading SYNC bytes
    input        byte_n,		// byte ready
    input        wps_n,		// write-protect sense
@@ -45,12 +46,13 @@ assign sb_data_out = ~(uc1_pb_o[1] | uc1_pb_oe_n[1]) & ~((uc1_pb_o[4] | uc1_pb_o
 assign sb_clk_out  = ~(uc1_pb_o[3] | uc1_pb_oe_n[3]);
 
 assign dout = uc3_pa_o | uc3_pa_oe_n;
+assign soe  = uc3_ca2_o | uc3_ca2_oe_n;
 assign mode = uc3_cb2_o | uc3_cb2_oe_n;
 
-assign stp    = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
-assign mtr    = uc3_pb_o[2] | uc3_pb_oe_n[2];
-assign act    = uc3_pb_o[3] | uc3_pb_oe_n[3];
-assign freq   = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];
+assign stp        = uc3_pb_o[1:0] | uc3_pb_oe_n[1:0];
+assign mtr        = uc3_pb_o[2] | uc3_pb_oe_n[2];
+assign act        = uc3_pb_o[3] | uc3_pb_oe_n[3];
+assign speed_zone = uc3_pb_o[6:5] | uc3_pb_oe_n[6:5];
 
 
 reg iec_atn;
@@ -105,7 +107,6 @@ wire [15:0] cpu_a;
 wire  [7:0] cpu_do;
 wire        cpu_rw;
 wire        cpu_irq_n = uc1_irq_n & uc3_irq_n;
-wire        cpu_so_n = byte_n | ~soe;
 
 T65 cpu
 (
@@ -117,7 +118,7 @@ T65 cpu
 	.abort_n(1'b1),
 	.irq_n(cpu_irq_n),
 	.nmi_n(1'b1),
-	.so_n(cpu_so_n),
+	.so_n(byte_n),
 	.r_w_n(cpu_rw),
 	.a({8'h00,cpu_a}),
 	.di(cpu_di),
@@ -190,7 +191,6 @@ wire       uc3_cb2_oe_n;
 wire [7:0] uc3_pa_oe_n;
 wire [7:0] uc3_pb_o;
 wire [7:0] uc3_pb_oe_n;
-wire       soe = uc3_ca2_o | uc3_ca2_oe_n;
 
 c1541_via6522 uc3
 (
@@ -204,7 +204,7 @@ c1541_via6522 uc3
 	.irq_l(uc3_irq_n),
 
 	// port a
-	.ca1_i(cpu_so_n),
+	.ca1_i(byte_n),
 	.ca2_i(1'b0),
 	.ca2_o(uc3_ca2_o),
 	.ca2_t_l(uc3_ca2_oe_n),
