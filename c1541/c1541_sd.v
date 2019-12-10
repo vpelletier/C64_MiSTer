@@ -131,6 +131,7 @@ c1541_logic c1541_logic
 wire [7:0] buff_dout;
 wire [7:0] buff_din;
 wire       buff_we;
+wire [1:0] buff_speed_zone;
 wire [7:0] gcr_do;
 wire [7:0] gcr_di;
 wire       sync_n;
@@ -156,6 +157,7 @@ c1541_gcr c1541_gcr
 	.ram_do(buff_dout),
 	.ram_di(buff_din),
 	.ram_we(buff_we),
+	.ram_speed_zone(buff_speed_zone),
 
 	.ram_ready(~sd_busy)
 );
@@ -177,6 +179,7 @@ c1541_track c1541_track
 	.buff_dout(buff_dout),
 	.buff_din(buff_din),
 	.buff_we(buff_we),
+	.buff_speed_zone(buff_speed_zone),
 
 	.disk_change(disk_change),
 	.stp(stp),

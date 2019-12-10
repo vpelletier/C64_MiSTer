@@ -60,6 +60,7 @@ module c1541_gcr
    input      [7:0] ram_do,
    output reg [7:0] ram_di,
    output reg       ram_we,
+   input      [1:0] ram_speed_zone,
    input            ram_ready
 );
 
@@ -143,7 +144,7 @@ always @(posedge clk32) begin
 		ram_we <= (~mode && wps_n);
 	end
 	if (bit_clock_negedge) begin
-		bit_addr <= bit_addr < bit_addr_max[speed_zone] ? bit_addr + 16'b1 : 16'b0;
+		bit_addr <= bit_addr < bit_addr_max[ram_speed_zone] ? bit_addr + 16'b1 : 16'b0;
 		byte_n <= ~&{whole_byte, soe};
 	end
 	if (parallel_to_serial_load_edge) begin

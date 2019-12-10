@@ -43,6 +43,7 @@ module c1541_track
 	output  [7:0] buff_dout,
 	input   [7:0] buff_din,
 	input         buff_we,
+	output  [1:0] buff_speed_zone,
 	output reg    busy
 );
 
@@ -56,14 +57,18 @@ always @(posedge sd_clk) begin
 	sd_rd <= rd1;
 end
 
+reg sd_buff_phase;
+assign sd_buff_din = sd_buff_phase ? speed_buffer_din : buffer_din;
+
+wire [7:0] buffer_din;
 wire sd_b_ack = sd_ack & busy;
 trk_dpram buffer
 (
 	.clock_a(sd_clk),
 	.address_a({sd_buff_base, sd_buff_addr}),
 	.data_a(sd_buff_dout),
-	.wren_a(sd_b_ack & sd_buff_wr),
-	.q_a(sd_buff_din),
+	.wren_a(sd_b_ack & sd_buff_wr & ~sd_buff_phase),
+	.q_a(buffer_din),
 
 	.clock_b(clk),
 	.address_b(buff_addr),
@@ -72,9 +77,28 @@ trk_dpram buffer
 	.q_b(buff_dout)
 );
 
+wire [7:0] speed_buffer_din;
+// XXX: ADDRWIDTH 7 would be enough with one speed per byte, and 5 with 4 speeds per byte,
+// but both require extra logic and there does not seem to be a need to save memory so much.
+trk_dpram #(.ADDRWIDTH(9)) speed_buffer
+(
+	.clock_a(sd_clk),
+	.address_a(sd_buff_addr),
+	.data_a(sd_buff_dout),
+	.wren_a(sd_b_ack & sd_buff_wr & sd_buff_phase),
+	.q_a(speed_buffer_din),
+
+	.clock_b(clk),
+	.address_b({2'b0, cur_half_track}),
+	.data_b(), // XXX: no drive-side write support.
+	.wren_b(1'b0),
+	.q_b({6'bx, buff_speed_zone})
+);
+
 reg [3:0] sd_buff_base;
 reg [6:0] cur_half_track;
-assign sd_lba = {cur_half_track, sd_buff_base};
+reg [6:0] lba_half_track;
+assign sd_lba = {sd_buff_phase, lba_half_track, sd_buff_base};
 reg rd,wr;
 
 always @(posedge clk) begin
@@ -95,23 +119,35 @@ always @(posedge clk) begin
 
 	if(reset) begin
 		cur_half_track <= 0;
+		lba_half_track <= 0;
 		busy  <= 0;
 		rd <= 0;
 		wr <= 0;
 		saving<= 0;
+		sd_buff_phase <= 0;
 	end
 	else
 	if(busy) begin
 		if(old_ack && ~ack) begin
-			if(sd_buff_base != 4'b1111) begin
+			if(sd_buff_phase == 0 && sd_buff_base != 4'b1111) begin
 				sd_buff_base <= sd_buff_base + 4'b1;
+				if(saving) wr <= 1;
+					else rd <= 1;
+			end
+			else
+			if(sd_buff_phase == 0) begin // XXX: reading once on disk change would be enough
+				sd_buff_base <= 0;
+				sd_buff_phase <= 1;
+				lba_half_track <= 0; // Speed block LBA is track-independent.
 				if(saving) wr <= 1;
 					else rd <= 1;
 			end
 			else
 			if(saving && (cur_half_track != half_track)) begin
 				saving <= 0;
+				sd_buff_phase <= 0;
 				cur_half_track <= half_track;
+				lba_half_track <= half_track;
 				sd_buff_base <= 0;
 				rd <= 1;
 			end
@@ -125,6 +161,7 @@ always @(posedge clk) begin
 	if(ready) begin
 		if(save_track) begin
 			saving <= 1;
+			sd_buff_phase <= 0;
 			sd_buff_base <= 0;
 			wr <= 1;
 			busy <= 1;
@@ -135,7 +172,9 @@ always @(posedge clk) begin
 			(old_disk_change && ~disk_change)
 		) begin
 			saving <= 0;
+			sd_buff_phase <= 0;
 			cur_half_track <= half_track;
+			lba_half_track <= half_track;
 			sd_buff_base <= 0;
 			rd <= 1;
 			busy <= 1;

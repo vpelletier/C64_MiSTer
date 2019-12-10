@@ -7,8 +7,19 @@ import struct
 import sys
 
 class BaseImage(object):
+    _SIDE_TRACK_COUNT = 84
+    _SPEED_TO_BYTE_LENGTH_LIST = [6250, 6666, 7142, 7692]
+    _DEFAULT_SPEED_LIST = [3] * (17 - 0) * 2 + [2] * (24 - 17) * 2 + [1] * (30 - 24) * 2 + [0] * (42 - 30) * 2
+    assert len(_DEFAULT_SPEED_LIST) == 84
+
     def __init__(self, gcr_half_track_dict):
         self.gcr_half_track_dict = gcr_half_track_dict
+
+    def _getHalfTrackDataAndSpeed(self, half_track_number):
+        return self.gcr_half_track_dict.get(
+            half_track_number,
+            (None, self._DEFAULT_SPEED_LIST[half_track_number]),
+        )
 
     @classmethod
     def read(cls, istream):
@@ -20,36 +31,43 @@ class BaseImage(object):
 class I64(BaseImage):
     _TRACK_LENGTH = 0x2000
     _BLANK_TRACK = '\x00' * _TRACK_LENGTH
-    _TRACK_BYTELENGTH = [7692] * (17 - 0) * 2 + [7142] * (24 - 17) * 2 + [6666] * (30 - 24) * 2 + [6250] * (42 - 30) * 2
+    _SPEED_BLOCK_OFFSET = 0x100000 # Next power-of-two above cls._SIDE_TRACK_COUNT * cls._TRACK_LENGTH
+    _FILE_SIZE = 0x100200
 
     @classmethod
     def read(cls, istream):
+        istream.seek(cls._SPEED_BLOCK_OFFSET)
+        track_speed_list = [ord(x) for x in istream.read(cls._SIDE_TRACK_COUNT)]
+        assert len(track_speed_list) == cls._SIDE_TRACK_COUNT
+        istream.seek(0)
         gcr_half_track_dict = {}
-        for half_track_number in count():
+        for half_track_number, track_speed in enumerate(track_speed_list):
             track = istream.read(cls._TRACK_LENGTH)
-            if track == cls._BLANK_TRACK:
-                continue
-            if len(track) == cls._TRACK_LENGTH:
-                gcr_half_track_dict[half_track_number] = track[:cls._TRACK_BYTELENGTH[half_track_number]]
-            else:
-                break
+            if track != cls._BLANK_TRACK:
+                gcr_half_track_dict[half_track_number] = (
+                    track[:cls._SPEED_TO_BYTE_LENGTH_LIST[track_speed]],
+                    track_speed,
+                )
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
-        for half_track_number in range(84):
-            track = self.gcr_half_track_dict.get(half_track_number)
+        track_speed_list = []
+        for half_track_number in range(self._SIDE_TRACK_COUNT):
+            track, speed = self._getHalfTrackDataAndSpeed(half_track_number)
             if track is None:
                 track = self._BLANK_TRACK
             else:
-                assert len(track) <= self._TRACK_BYTELENGTH[half_track_number], (half_track_number, len(track), self._TRACK_BYTELENGTH[half_track_number])
+                assert len(track) <= self._SPEED_TO_BYTE_LENGTH_LIST[speed], (half_track_number, len(track), speed)
+                assert len(track) < self._TRACK_LENGTH, (half_track_number, len(track))
+            track_speed_list.append(speed)
             ostream.write(track)
-            if len(track) < self._TRACK_LENGTH:
-                ostream.write('\x00' * (self._TRACK_LENGTH - len(track)))
+            ostream.write('\x00' * (self._TRACK_LENGTH - len(track)))
+        ostream.write('\x00' * (self._SPEED_BLOCK_OFFSET - ostream.tell()))
+        ostream.write(''.join(chr(x) for x in track_speed_list))
+        ostream.write('\x00' * (self._FILE_SIZE - ostream.tell()))
 
 class G64(BaseImage):
     _MAGIC = 'GCR-1541\x00'
-    _DEFAULT_SPEED_LIST = [3] * (17 - 0) * 2 + [2] * (24 - 17) * 2 + [1] * (30 - 24) * 2 + [0] * (42 - 30) * 2
-    assert len(_DEFAULT_SPEED_LIST) == 84
 
     @classmethod
     def read(cls, istream):
@@ -71,51 +89,56 @@ class G64(BaseImage):
             istream.seek(track_data_offset)
             track_length = struct.unpack('<H', istream.read(2))[0]
             assert track_length <= max_track_length, (half_track_number, track_length)
-            gcr_half_track_dict[half_track_number] = istream.read(track_length)
+            gcr_half_track_dict[half_track_number] = [istream.read(track_length), None]
         # XXX: no speed support, just check the value is standard
         for half_track_number, track_speed_offset in enumerate(track_speed_offset_list):
             half_track_length = len(gcr_half_track_dict.get(half_track_number, ''))
             if not half_track_length:
                 continue
-            expected_speed = cls._DEFAULT_SPEED_LIST[half_track_number]
             if track_speed_offset > 3:
                 istream.seek(track_speed_offset)
+                track_speed_set = set()
                 speed_data = [
                     struct.unpack('B', x)[0]
                     for x in istream.read((half_track_length + 3) // 4)
                 ]
                 for data_byte_index in range(half_track_length):
                     speed_byte_index, half_shift = divmod(data_byte_index, 4)
-                    if (speed_data[speed_byte_index] >> (8 - half_shift * 2)) & 0x3 != expected_speed:
-                        print 'Warning half track %i: byte %i at speed %i instead of %i' % (half_track_number, data_byte_index, track_speed_offset, expected_speed)
+                    track_speed_set.add((speed_data[speed_byte_index] >> (8 - half_shift * 2)) & 0x3)
+                if len(track_speed_set):
+                    print 'Warning half track %i: multiple speeds used: %r' % (half_track_number, track_speed_set)
+                    track_speed = max(track_speed_set)
             else:
-                if track_speed_offset != expected_speed:
-                    print 'Warning half track %i: track at speed %i instead of %i' % (half_track_number, track_speed_offset, expected_speed)
+                track_speed = track_speed_offset
+            gcr_half_track_dict[half_track_number][1] = track_speed
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
         ostream.write(self._MAGIC)
-        track_count = 84
+        track_count = self._SIDE_TRACK_COUNT
         assert len(self.gcr_half_track_dict) <= track_count
         max_track_length = 7928
-        assert max(len(x) for x in self.gcr_half_track_dict.values()) <= max_track_length, ([len(x) for x in self.gcr_half_track_dict.values()], max_track_length)
+        assert max(len(x) for x, _ in self.gcr_half_track_dict.values()) <= max_track_length, ([len(x) for x, _ in self.gcr_half_track_dict.values()], max_track_length)
         ostream.write(struct.pack('<BH', track_count, max_track_length))
         base_offset = current_offset = ostream.tell() + 4 * 2 * track_count
         half_track_offset_list = []
+        speed_list = []
         for half_track_number in range(track_count):
-            track_data = self.gcr_half_track_dict.get(half_track_number)
+            track_data, track_speed = self._getHalfTrackDataAndSpeed(half_track_number)
             if track_data:
                 offset = current_offset
                 current_offset += max_track_length + 2 # +2 for the length bytes header
                 half_track_offset_list.append((half_track_number, offset))
             else:
+                speed = 0 # Not really meaningful ?
                 offset = 0
+            speed_list.append(track_speed)
             ostream.write(struct.pack('<I', offset))
-        for half_track_number, speed in enumerate(self._DEFAULT_SPEED_LIST):
-            ostream.write(struct.pack('<I', speed if half_track_number in self.gcr_half_track_dict else 0))
+        for speed in speed_list:
+            ostream.write(struct.pack('<I', speed))
         assert ostream.tell() == base_offset, (ostream.tell(), base_offset)
         for half_track_number, offset in half_track_offset_list:
-            track_data = self.gcr_half_track_dict[half_track_number]
+            track_data, _ = self.gcr_half_track_dict[half_track_number]
             assert offset == ostream.tell(), (half_track_number, offset, ostream.tell())
             ostream.write(struct.pack('<H', len(track_data)))
             ostream.write(track_data)
@@ -248,15 +271,27 @@ class D64(BaseImage):
             track_usable_length = cls._TRACK_BYTE_LENGTH_LIST[track_number]
             if len(gcr_track) < track_usable_length:
                 gcr_track += '\x55' * (track_usable_length - len(gcr_track))
-            gcr_half_track_dict[track_number * 2] = gcr_track
+            # Double is the new half.
+            half_track_number = track_number * 2
+            gcr_half_track_dict[half_track_number] = (gcr_track, cls._DEFAULT_SPEED_LIST[half_track_number])
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
-        for half_track_number, track_gcr_data in self.gcr_half_track_dict.items():
+        for half_track_number in range(self._SIDE_TRACK_COUNT):
             if half_track_number & 1:
                 continue
+            # Half is the new double.
             track_number = half_track_number // 2
             track_sector_count = self._TRACK_SECTOR_COUNT_LIST[track_number]
+            track_gcr_data, speed = self._getHalfTrackDataAndSpeed(half_track_number)
+            if not track_gcr_data:
+                ostream.write(self._EMPTY_BLOCK * track_sector_count)
+                continue
+            assert speed == self._DEFAULT_SPEED_LIST[half_track_number], 'D64 cannot contain non-standard speed tracks: half-track %i speed %i, standard speed %i' % (
+                half_track_number,
+                speed,
+                self._DEFAULT_SPEED_LIST[half_track_number],
+            )
             # Make track easy to manipulate at individual bit level.
             track_gcr_bit_string = toBitString(track_gcr_data.rstrip('\x00'))
             # Align to beginning of first sync mark.
@@ -329,12 +364,13 @@ def main(infile_name, outfile_name):
         raise ValueError('Not overwriting %r' % outfile_name)
     infile_class = EXTENSION_TO_CLASS[os.path.splitext(infile_name)[1].lower()]
     outfile_class = EXTENSION_TO_CLASS[os.path.splitext(outfile_name)[1].lower()]
-    try:
-        with open(infile_name, 'r') as infile, open(outfile_name, 'w') as outfile:
-            outfile_class(infile_class.read(infile).gcr_half_track_dict).write(outfile)
-    except Exception:
-        os.unlink(outfile_name)
-        raise
+    with open(infile_name, 'r') as infile:
+        try:
+            with open(outfile_name, 'w') as outfile:
+                outfile_class(infile_class.read(infile).gcr_half_track_dict).write(outfile)
+        except Exception:
+            os.unlink(outfile_name)
+            raise
 
 if __name__ == '__main__':
     main(*sys.argv[1:])
