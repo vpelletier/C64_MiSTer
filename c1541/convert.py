@@ -171,7 +171,6 @@ def toByteString(bit_string):
 
 class D64(BaseImage):
     _TRACK_SECTOR_COUNT_LIST = [21] * (17 - 0) + [19] * (24 - 17) + [18] * (30 - 24) + [17] * (42 - 30)
-    _TRACK_BYTE_LENGTH_LIST = [7692] * (17 - 0) + [7142] * (24 - 17) + [6666] * (30 - 24) + [6250] * (42 - 30)
     _POST_DATA_GAP_LENGTH_LIST = [8] * (17 - 0) + [17] * (24 - 17) + [12] * (30 - 24) + [9] * (42 - 30)
     # BAM sector offset 162 & 163 have the disk ID
     _ID_OFFSET = 0x165a2
@@ -190,6 +189,15 @@ class D64(BaseImage):
     _GCR_DICT = {y: x for x, y in enumerate(_GCR_LIST)}
     _SYNC_BIT_STRING = '1' * 10
     _EMPTY_BLOCK = '\x00' * 256
+
+    # Error block codes
+    _STATUS_OK = 0
+    _STATUS_NO_HEADER = 20
+    _STATUS_NO_SYNC = 21
+    _STATUS_NO_DATA = 22
+    _STATUS_BAD_DATA = 23
+    _STATUS_BAD_HEADER = 27
+    _STATUS_ID_MISMATCH = 29
 
     @classmethod
     def _gcr_encode(cls, data):
@@ -237,42 +245,94 @@ class D64(BaseImage):
         istream.seek(cls._ID_OFFSET)
         disk_id = istream.read(2)
         disk_id_sum = ord(disk_id[0]) ^ ord(disk_id[1])
+        bad_disk_id = disk_id[0] + chr(ord(disk_id[1]) ^ 1)
+        bad_disk_id_sum = ord(bad_disk_id[0]) ^ ord(bad_disk_id[1])
+        istream.seek(0, 2)
+        track_count, error_block_offset = {
+            174848: (35, None),
+            175531: (35, 174848),
+            196608: (40, None),
+            197376: (40, 196608),
+            205312: (42, None),
+            206114: (42, 205312),
+            # D71
+            349696: (70, None),
+            351062: (70, 349696),
+        }[istream.tell()]
+        if track_count > 42:
+            print 'Warning: no double-sided disk support yet, ignoring tracks above 35'
+            track_count = 35
+        if error_block_offset:
+            istream.seek(error_block_offset)
+            error_list = [
+                [
+                    ord(istream.read(1))
+                    for _ in range(cls._TRACK_SECTOR_COUNT_LIST[track_number])
+                ]
+                for track_number in range(track_count)
+            ]
+        else:
+            error_list = [
+                [
+                    cls._STATUS_OK
+                    for _ in range(cls._TRACK_SECTOR_COUNT_LIST[track_number])
+                ]
+                for track_number in range(track_count)
+            ]
         istream.seek(0)
         gcr_half_track_dict = {}
-        for track_number, track_sector_count in enumerate(cls._TRACK_SECTOR_COUNT_LIST):
+        for track_number in range(track_count):
+            track_error_list = error_list[track_number]
+            if cls._STATUS_NO_SYNC in track_error_list:
+                if len(set(track_error_list)) == 1:
+                    # No sync on whole track ? leave it blank
+                    continue
+                print 'Warning: image contains tracks with a mix of "NO SYNC" and other block statuses, ignoring "NO SYNC"'
             gcr_track = []
             for block_number in range(cls._TRACK_SECTOR_COUNT_LIST[track_number]):
+                block_error = track_error_list[block_number]
                 block_data = istream.read(256)
-                if len(block_data) != 256:
-                    break
+                assert len(block_data) == 256, (track_number, block_number)
                 data_checksum = 0
+                if block_error == cls._STATUS_BAD_DATA:
+                    data_checksum += 1
+                if block_error == cls._STATUS_ID_MISMATCH:
+                    block_disk_id = bad_disk_id
+                    block_disk_id_sum = bad_disk_id_sum
+                else:
+                    block_disk_id = disk_id
+                    block_disk_id_sum = disk_id_sum
                 for data_byte in block_data:
                     data_checksum ^= ord(data_byte)
                 gap_length = cls._POST_DATA_GAP_LENGTH_LIST[track_number]
                 gcr_track.append(
                     cls._GCR_SYNC + cls._gcr_encode(
-                        '\x08' +
-                        chr((track_number + 1) ^ block_number ^ disk_id_sum) +
+                        ('\x00' if block_error == cls._STATUS_NO_HEADER else '\x08') +
+                        chr(
+                            (track_number + 1) ^
+                            block_number ^
+                            block_disk_id_sum ^
+                            (1 if block_error == cls._STATUS_BAD_HEADER else 0)
+                        ) +
                         chr(block_number) +
                         chr(track_number + 1) +
-                        disk_id +
+                        block_disk_id +
                         '\x0f\x0f', # To get to a multiple of 4 bytes for GCR encoding
                     ) + cls._GCR_GAP * 9 +
                     cls._GCR_SYNC + cls._gcr_encode(
-                        '\x07' +
+                        ('\x00' if block_error == cls._STATUS_NO_DATA else '\x07') +
                         block_data +
                         chr(data_checksum) +
+                        # XXX: VICE uses 0x00 padding
                         '\x00\x00', #'\x0f\x0f', # To get to a multiple of 4 bytes for GCR encoding
                     ) + cls._GCR_GAP * gap_length,
                 )
-            if not gcr_track:
-                break
-            gcr_track = ''.join(gcr_track)
-            track_usable_length = cls._TRACK_BYTE_LENGTH_LIST[track_number]
-            if len(gcr_track) < track_usable_length:
-                gcr_track += '\x55' * (track_usable_length - len(gcr_track))
             # Double is the new half.
             half_track_number = track_number * 2
+            gcr_track = ''.join(gcr_track)
+            track_usable_length = cls._DEFAULT_SPEED_LIST[half_track_number]
+            if len(gcr_track) < track_usable_length:
+                gcr_track += '\x55' * (track_usable_length - len(gcr_track))
             gcr_half_track_dict[half_track_number] = (gcr_track, cls._DEFAULT_SPEED_LIST[half_track_number])
         return cls(gcr_half_track_dict)
 
@@ -356,6 +416,7 @@ class D64(BaseImage):
 
 EXTENSION_TO_CLASS = {
     '.d64': D64,
+    '.d71': D64,
     '.g64': G64,
     '.i64': I64,
 }
