@@ -65,7 +65,7 @@ module c1541_gcr
 );
 
 reg clk16; // c1541 internal crystal
-always @(posedge clk32) clk16 <= clk16 + 1'b1;
+always @(posedge clk32) clk16 <= ~clk16;
 
 wire raw_bit_clock; // speed-zone-adjusted clock
 sn74ls193 raw_bit_clock_ic(
