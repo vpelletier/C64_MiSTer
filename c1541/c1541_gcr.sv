@@ -48,24 +48,46 @@ module c1541_gcr
    output     [7:0] dout,		// data from ram to 1541 logic
    input      [7:0] din,		// data from 1541 logic to ram
    input            mode,		// read/write
-   input            mtr,		// spindle motor on/off
    input            soe,		// serial output enable
    input            wps_n,		// write-protect
-   output           sync_n,		// reading SYNC bytes
+   output reg       sync_n,		// reading SYNC bytes
    output reg       byte_n,		// byte ready
 
-   output reg [12:0] byte_addr,
    input      [1:0] speed_zone,
 
-   input      [7:0] ram_do,
-   output reg [7:0] ram_di,
-   output reg       ram_we,
-   input      [1:0] ram_speed_zone,
-   input            ram_ready
+   input            ram_do,
+   output reg       ram_di,
+   output reg       ram_we
 );
 
 reg clk16; // c1541 internal crystal
 always @(posedge clk32) clk16 <= ~clk16;
+
+reg read_data;
+always @(posedge clk32) begin
+	reg ram_do1;
+	reg [6:0] time_domain_filter_counter;
+	reg time_domain_filter_out1;
+	reg [2:0] one_shot_counter;
+	ram_do1 <= ram_do;
+
+	// Time domain filter times out after about 41 16MHz cycles.
+	if (ram_do && !ram_do1)
+		time_domain_filter_counter <= 7'd82;
+	else if (time_domain_filter_counter)
+		time_domain_filter_counter <= time_domain_filter_counter - 7'b1;
+	// else: stable state, stay at 0
+
+	// One-shot counter times out after 2 16MHz cycles.
+	time_domain_filter_out1 <= |time_domain_filter_counter;
+	if (|time_domain_filter_counter && !time_domain_filter_out1)
+		one_shot_counter <= 3'd4;
+	else if (one_shot_counter)
+		one_shot_counter <= one_shot_counter - 3'b1;
+	// else: stable state, stay at 0
+
+	read_data <= |one_shot_counter;
+end
 
 wire raw_bit_clock; // speed-zone-adjusted clock
 sn74ls193 raw_bit_clock_ic(
@@ -74,11 +96,11 @@ sn74ls193 raw_bit_clock_ic(
 	.down(1'b1),
 	.data_in({2'b0, speed_zone}),
 	.clr(1'b0),
-	.load_n(raw_bit_clock & ram_ready & mtr),
+	.load_n(raw_bit_clock & ~read_data),
 
 	.carry_n(raw_bit_clock),
-	.borrow_n(), // (n/c)
-	.data_out()  // (n/c)
+	.borrow_n(),
+	.data_out()
 );
 
 // state counter:
@@ -86,21 +108,19 @@ sn74ls193 raw_bit_clock_ic(
 // state[1] clocks bit counter, bit shifters, and when low clocks byte ready
 //          and (in real hardware) is mixed with serial output
 // ~|state[3:2] counts how many bits ago a magnetic flux inversion was last
-//              sensed. This is useful on real hardware to tolerate variations
-//              in track speed. In this implementation, we control bit address
-//              increment accurately so these bits are ignored.
-wire [1:0] state;
+//              sensed.
+wire [3:0] state;
 sn74ls193 state_counter_ic(
 	.clk(clk32),
 	.up(~raw_bit_clock),
 	.down(1'b1),
 	.data_in(4'b0),
-	.clr(~(ram_ready & mtr)),
+	.clr(read_data),
 	.load_n(1'b1),
 
-	.carry_n(), // (n/c)
-	.borrow_n(), // (n/c)
-	.data_out({2'bx, state})
+	.carry_n(),
+	.borrow_n(),
+	.data_out(state)
 );
 
 reg parallel_to_serial_load_edge;
@@ -120,35 +140,23 @@ reg [2:0] bit_count;
 wire whole_byte = &bit_count;
 wire parallel_to_serial_load = &{whole_byte, state[1], state[0]};
 reg [9:0] read_shift_register;
-assign sync_n = ~&{mode, read_shift_register};
-
+reg [7:0] write_shift_register;
 assign dout = read_shift_register[7:0];
-// XXX: Simulating perfect magnetic resolution: if non-standard speed zone is
-// requested, shorter tracks will still be able to fit as many bits as longer
-// tracks.
-// XXX: read/write speed mismatch is not emulated, besides not being able to
-// reach last bytes on lower speeds.
-wire [15:0] bit_addr_max[4] = '{
-	16'd50000 - 1, // 16MHz / 16 / 4 / 5Hz (spindle rotation)
-	16'd53328 - 1, // 16MHz / 15 / 4 / 5Hz, rounded down to whole byte (-5 bits)
-	16'd57136 - 1, // 16MHz / 14 / 4 / 5Hz, rounded down to whole byte (-7 bit)
-	16'd61536 - 1  // 16MHz / 13 / 4 / 5Hz, rounded down to whole byte (-2 bits)
-};
 
-reg [15:0] bit_addr;
-assign byte_addr = bit_addr[15:3];
 always @(posedge clk32) begin
+	sync_n <= ~&{mode, read_shift_register};
+	ram_di <= write_shift_register[7] & ~state[1];
 	if (bit_clock_posedge) begin
 		bit_count <= sync_n ? bit_count + 3'b1 : 3'b0;
-		read_shift_register <= {read_shift_register[8:0], ram_do[3'b111 - bit_addr[2:0]]};
+		read_shift_register <= {read_shift_register[8:0], ~|state[3:2]};
+		write_shift_register <= {write_shift_register[6:0], 1'b0};
 		ram_we <= (~mode && wps_n);
 	end
 	if (bit_clock_negedge) begin
-		bit_addr <= bit_addr < bit_addr_max[ram_speed_zone] ? bit_addr + 16'b1 : 16'b0;
 		byte_n <= ~&{whole_byte, soe};
 	end
 	if (parallel_to_serial_load_edge) begin
-		ram_di <= din;
+		write_shift_register <= din;
 	end
 end
 

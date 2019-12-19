@@ -2,6 +2,7 @@
 from __future__ import division
 from collections import defaultdict
 from itertools import count
+import math
 import os
 import struct
 import sys
@@ -29,41 +30,103 @@ class BaseImage(object):
         raise NotImplementedError
 
 class I64(BaseImage):
-    _TRACK_LENGTH = 0x2000
+    """
+    file:
+      84 * track_data + 84 * track_metadata
+    track_data:
+      0x2000 bytes whose bits represent magnetic flux changes
+    track_metadata:
+      speed + clock_count + track_length
+    speed (2 bits):
+      Track speed zone (0, 1, 2, 3, 0 being slowest).
+      Only intended to be used to reconstruct G64 image.
+    clock_count (14 bits):
+      The number, minus 32, of 16MHz clock pulses a "1" bit lasts.
+      Stored as fixed-point: 6 bits for integer part followed by 8 bits for fractional part.
+    track_length (16 bits):
+      The number of bytes in that track.
+    """
+
+    # Fixed values (drive design)
+    _BASE_CLOCK_FREQUENCY = 16e6 # Hz
+    _SPINDLE_ROTATION_FREQUENCY = 5 # Hz, 300rpm = 5Hz
+    _TIME_DOMAIN_FILTER_RESISTOR = 22 # kOhm +/- 5%
+    _TIME_DOMAIN_FILTER_CAPACITOR = 330 # pF +/- 5%
+    _TIME_DOMAIN_FILTER_K = 0.37 # from Fairchild 9602 datasheet, page 5 figure 6
+    _TIME_DOMAIN_FILTER_PULSE_WIDTH = (
+        _TIME_DOMAIN_FILTER_K *
+        _TIME_DOMAIN_FILTER_RESISTOR *
+        _TIME_DOMAIN_FILTER_CAPACITOR *
+        (1 + 1 / _TIME_DOMAIN_FILTER_RESISTOR)
+    ) # ns, +/- 10%, formula from Fairchild 9602 datasheet
+    # XXX: Taking typical values (so ignoring component precision)
+    _TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH = _BASE_CLOCK_FREQUENCY * (_TIME_DOMAIN_FILTER_PULSE_WIDTH * 1e-9)
+    # At the slowest speed (zone 0), it takes 32 clock cycles to shift a 1 and 64 to shift a 0.
+    # This is because all a magnetic head can read is a flux change (for a 1).
+    # Absence of flux change is handled as a timeout, so it is longer - twice longer in this drive's case.
+    _ONE_SHIFT_CLOCK_CYCLE_COUNT = 32
+    _ZERO_SHIFT_CLOCK_CYCLE_COUNT = 64
+    # Time domain pulse must be longer that a "1", but shorter than a "0".
+    # In reality, given component values this is around 45 clock cycles. At +/- 20%
+    # (10% from 6902 chip, 5% from capacitor, 5% from resistor), this is from 36 to 54,
+    # so this assertion is more about documenting circuit and as a rough sanity check
+    # than an expected error case.
+    assert _ONE_SHIFT_CLOCK_CYCLE_COUNT < _TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH < _ZERO_SHIFT_CLOCK_CYCLE_COUNT, _TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH
+    del _BASE_CLOCK_FREQUENCY
+    del _SPINDLE_ROTATION_FREQUENCY
+    del _TIME_DOMAIN_FILTER_RESISTOR
+    del _TIME_DOMAIN_FILTER_CAPACITOR
+    del _TIME_DOMAIN_FILTER_K
+    del _TIME_DOMAIN_FILTER_PULSE_WIDTH
+
+    # 16 - x: number of 16MHz clock pulses needed to overflow UE6 for speed zone "x"
+    # 2: after 2 UE6 overflows a bit is clocked in/out of the bit shift registers by UF4
+    _STANDARD_ONE_DELAY_LIST = tuple([(16 - x) * 2 for x in (0, 1, 2, 3)])
+    _STANDARD_ZERO_DELAY_LIST = tuple([(16 - x) * 4 for x in (0, 1, 2, 3)])
+    _MIN_ONE_DELAY = math.ceil(_TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH)
+
+    _TRACK_LENGTH = 2 ** max(BaseImage._SPEED_TO_BYTE_LENGTH_LIST).bit_length()
+    assert _TRACK_LENGTH == 0x2000, _TRACK_LENGTH
     _BLANK_TRACK = '\x00' * _TRACK_LENGTH
-    _SPEED_BLOCK_OFFSET = 0x100000 # Next power-of-two above cls._SIDE_TRACK_COUNT * cls._TRACK_LENGTH
-    _FILE_SIZE = 0x100200
+    _METADATA_BLOCK_OFFSET = _TRACK_LENGTH * BaseImage._SIDE_TRACK_COUNT
+    _FILE_SIZE = _METADATA_BLOCK_OFFSET + 0x200 # Add one LBA for metadata: 84 * 4 < 0x200
 
     @classmethod
     def read(cls, istream):
-        istream.seek(cls._SPEED_BLOCK_OFFSET)
-        track_speed_list = [ord(x) for x in istream.read(cls._SIDE_TRACK_COUNT)]
-        assert len(track_speed_list) == cls._SIDE_TRACK_COUNT
+        istream.seek(cls._METADATA_BLOCK_OFFSET)
+        track_metadata_list = [struct.unpack('>BBH', istream.read(4)) for _ in range(cls._SIDE_TRACK_COUNT)]
         istream.seek(0)
         gcr_half_track_dict = {}
-        for half_track_number, track_speed in enumerate(track_speed_list):
+        for half_track_number, (track_speed_and_delay_integer, delay_fractional, track_length) in enumerate(track_speed_list):
             track = istream.read(cls._TRACK_LENGTH)
             if track != cls._BLANK_TRACK:
-                gcr_half_track_dict[half_track_number] = (
-                    track[:cls._SPEED_TO_BYTE_LENGTH_LIST[track_speed]],
-                    track_speed,
-                )
+                speed = track_speed_and_delay_integer >> 6
+                delay = (track_speed_and_delay_integer & 0x3f) + self._ONE_SHIFT_CLOCK_CYCLE_COUNT + delay_fractional / 256
+                assert self._TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH < delay < self._STANDARD_ZERO_DELAY_LIST[speed], (half_track_number, delay, speed)
+                gcr_half_track_dict[half_track_number] = (track[:track_length], speed)
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
-        track_speed_list = []
+        track_metadata_list = []
         for half_track_number in range(self._SIDE_TRACK_COUNT):
             track, speed = self._getHalfTrackDataAndSpeed(half_track_number)
-            if track is None:
-                track = self._BLANK_TRACK
+            if track:
+                assert len(track) <= self._TRACK_LENGTH, (half_track_number, len(track))
             else:
-                assert len(track) <= self._SPEED_TO_BYTE_LENGTH_LIST[speed], (half_track_number, len(track), speed)
-                assert len(track) < self._TRACK_LENGTH, (half_track_number, len(track))
-            track_speed_list.append(speed)
+                track = self._BLANK_TRACK
+            delay = self._SPEED_TO_BYTE_LENGTH_LIST[speed] / len(track) * self._STANDARD_ZERO_DELAY_LIST[speed]
+            assert self._TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH < delay < self._STANDARD_ONE_DELAY_LIST[speed] + self._STANDARD_ZERO_DELAY_LIST[speed], (half_track_number, delay, speed)
+            delay_integer, delay_fractional = divmod(delay, 1)
+            track_metadata_list.append(struct.pack(
+                '>BBH',
+                speed << 6 | (int(delay_integer) - self._ONE_SHIFT_CLOCK_CYCLE_COUNT),
+                int(delay_fractional * 256),
+                len(track),
+            ))
             ostream.write(track)
             ostream.write('\x00' * (self._TRACK_LENGTH - len(track)))
-        ostream.write('\x00' * (self._SPEED_BLOCK_OFFSET - ostream.tell()))
-        ostream.write(''.join(chr(x) for x in track_speed_list))
+        assert self._METADATA_BLOCK_OFFSET == ostream.tell()
+        ostream.write(''.join(track_metadata_list))
         ostream.write('\x00' * (self._FILE_SIZE - ostream.tell()))
 
 class G64(BaseImage):
