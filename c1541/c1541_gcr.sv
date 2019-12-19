@@ -106,9 +106,9 @@ sn74ls193 raw_bit_clock_ic(
 // state counter:
 // state[0] clocks parallel input on byte boundary and high state[1]
 // state[1] clocks bit counter, bit shifters, and when low clocks byte ready
-//          and (in real hardware) is mixed with serial output
-// ~|state[3:2] counts how many bits ago a magnetic flux inversion was last
-//              sensed.
+//          and is mixed with serial output
+// state[3:2] counts how many bits ago a magnetic flux inversion was last
+//            sensed.
 wire [3:0] state;
 sn74ls193 state_counter_ic(
 	.clk(clk32),
