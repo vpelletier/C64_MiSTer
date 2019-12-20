@@ -67,12 +67,6 @@ assign sd_buff_din = ~metadata_track ? sd_track_buff_din :
 wire sd_b_ack = sd_ack & busy;
 reg [15:0] buff_bit_addr;
 wire [15:0] next_buff_bit_addr = buff_bit_addr + 16'b1;
-// Where a track change should start reading.
-// Start reading as close as possible to current head position, but far enough ahead that once it has seen any new-track byte it will not see any old-track byte.
-// Assuming tracks are received from hard processor at least 10 times faster than they are read,
-// and assuming LBAs are received in increasing sd_buff_addr order,
-// it is safe to read the LBA the head is currently on if it is further than 51.2 bytes away from its end. Round it to 64, or when the 3 MSb are 1.
-wire [3:0] next_lba = buff_bit_addr[15:12] + &buff_bit_addr[11:9];
 wire [7:0] buff_dout_byte;
 wire flux_change = buff_dout_byte[~buff_bit_addr[2:0]];
 wire buff_din_posedge = !old_buff_din && buff_din;
@@ -144,8 +138,6 @@ always @(posedge clk) begin
 	reg [7:0] clk_counter_max_integer;
 	reg [7:0] clk_counter_max_fractional;
 	reg [1:0] no_flux_change_count;
-	reg [3:0] lba_count;
-	reg [3:0] io_start_lba;
 
 	old_disk_change <= disk_change;
 	if (~old_disk_change && disk_change) ready <= 1;
@@ -208,9 +200,8 @@ always @(posedge clk) begin
 				rd <= 1;
 			end
 			else
-			if(lba_count != 4'b1111) begin
+			if(sd_buff_base != 4'b1111) begin
 				sd_buff_base <= sd_buff_base + 4'b1;
-				lba_count <= lba_count + 4'b1;
 				if(saving) wr <= 1;
 					else rd <= 1;
 			end
@@ -218,8 +209,7 @@ always @(posedge clk) begin
 			if(saving && (cur_half_track != half_track)) begin
 				saving <= 0;
 				cur_half_track <= half_track;
-				sd_buff_base <= io_start_lba;
-				lba_count <= 0;
+				sd_buff_base <= 0;
 				rd <= 1;
 			end
 			else
@@ -232,9 +222,7 @@ always @(posedge clk) begin
 	if(ready) begin
 		if(save_track) begin
 			saving <= 1;
-			io_start_lba <= next_lba;
-			sd_buff_base <= next_lba;
-			lba_count <= 0;
+			sd_buff_base <= 0;
 			wr <= 1;
 			busy <= 1;
 		end
@@ -244,16 +232,8 @@ always @(posedge clk) begin
 			(old_disk_change && ~disk_change)
 		) begin
 			saving <= 0;
-			if (old_disk_change && ~disk_change) begin
-				cur_half_track <= 7'd84;
-				io_start_lba <= 0;
-				sd_buff_base <= 0;
-			end else begin
-				cur_half_track <= half_track;
-				io_start_lba <= next_lba;
-				sd_buff_base <= next_lba;
-			end
-			lba_count <= 0;
+			cur_half_track <= old_disk_change && ~disk_change ? 7'd84 : half_track;
+			sd_buff_base <= 0;
 			rd <= 1;
 			busy <= 1;
 		end
