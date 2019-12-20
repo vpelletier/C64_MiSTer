@@ -145,12 +145,18 @@ always @(posedge clk) begin
 	old_buff_din <= buff_din;
 	if (mtr) begin
 		if (clk_counter == clk_counter_max_integer) begin
-			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, delay_integer, delay_fractional, 1'b0} + {1'b0, 6'd32, clk_counter_max_fractional, 1'b0};
+			// number of 32MHz clock periods until next bit is: next_delay_int.next_delay_fract =  (track_delay_int.track_delay_fract) * 2 + (32 * 2 - 1).next_delay_fract
+			// "32" because track delay is stored offset by -32.
+			// "* 2" because our clock is 32 MHz, while track delay is in 16MHz cycles.
+			// "- 1" because we are already one 32MHz cycle into the next bit.
+			// Note: clk_counter_max_fractional[0] is always 0 and is optimised away during synthesis, but removing it here makes the "* 2" harder to notice.
+			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, delay_integer, delay_fractional, 1'b0} + {1'b0, 6'd31, 1'b1, clk_counter_max_fractional};
 			buff_bit_addr <= next_buff_bit_addr[15:3] < track_length ? next_buff_bit_addr : 16'b0;
 			buff_din_latched <= buff_din_posedge;
 			rnd_reg <= rnd;
 			clk_counter <= 0;
 		end else begin
+			// Emit current bit. XXX: emitting a flux inversion from counter 1 to 8 is completely arbitrary. Drive electronics do not care about the actual length.
 			if (clk_counter == 6'd1) begin
 				if (flux_change) begin
 					buff_dout <= ~buff_we;
@@ -158,7 +164,7 @@ always @(posedge clk) begin
 				end else begin
 					// a zero lasts twice as long as a one
 					//clk_counter_max_integer <= {clk_counter_max_integer[6:0], 1'b0};
-					if (no_flux_change_count == 2'b11) begin
+					if (no_flux_change_count == 2'd3) begin
 						buff_dout <= ~buff_we & rnd_reg[0];
 					end else begin
 						buff_dout <= 0;
