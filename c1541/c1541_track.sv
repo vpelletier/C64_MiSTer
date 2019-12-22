@@ -59,10 +59,14 @@ wire [62:0] rnd;
 lfsr random(rnd);
 
 assign sd_buff_din = ~metadata_track ? sd_track_buff_din :
-		     sd_buff_addr[1:0] == 2'b00 ? sd_metadata_buff_din[31:24] :
-		     sd_buff_addr[1:0] == 2'b01 ? sd_metadata_buff_din[23:16] :
-		     sd_buff_addr[1:0] == 2'b10 ? sd_metadata_buff_din[15: 8] :
-						  sd_metadata_buff_din[ 7: 0];
+		     sd_buff_addr[2:0] == 3'b000 ? sd_metadata_buff_din[63:56] :
+		     sd_buff_addr[2:0] == 3'b001 ? sd_metadata_buff_din[55:48] :
+		     sd_buff_addr[2:0] == 3'b010 ? sd_metadata_buff_din[47:40] :
+		     sd_buff_addr[2:0] == 3'b011 ? sd_metadata_buff_din[39:32] :
+		     sd_buff_addr[2:0] == 3'b100 ? sd_metadata_buff_din[31:24] :
+		     sd_buff_addr[2:0] == 3'b101 ? sd_metadata_buff_din[23:16] :
+		     sd_buff_addr[2:0] == 3'b110 ? sd_metadata_buff_din[15: 8] :
+						   sd_metadata_buff_din[ 7: 0];
 
 wire sd_b_ack = sd_ack & busy;
 reg [15:0] buff_bit_addr;
@@ -93,23 +97,29 @@ trk_dpram buffer
 	.clock_b(clk),
 	.address_b(buff_bit_addr[15:3]),
 	.data_b(buff_din_byte),
-	.wren_b(buff_we),
+	.wren_b(buff_we && !busy),
 	.q_b(buff_dout_byte)
 );
 
-wire [31:0] sd_metadata_buff_din;
-wire [31:0] sd_metadata_buff_dout = sd_buff_addr[1:0] == 2'b00 ? {                             sd_buff_dout, sd_metadata_buff_din[23:0]} :
-				    sd_buff_addr[1:0] == 2'b01 ? {sd_metadata_buff_din[31:24], sd_buff_dout, sd_metadata_buff_din[15:0]} :
-				    sd_buff_addr[1:0] == 2'b10 ? {sd_metadata_buff_din[31:16], sd_buff_dout, sd_metadata_buff_din[ 7:0]} :
-								 {sd_metadata_buff_din[31: 8], sd_buff_dout                            };
+wire [63:0] sd_metadata_buff_din;
+wire [63:0] sd_metadata_buff_dout = sd_buff_addr[2:0] == 3'b000 ? {                             sd_buff_dout, sd_metadata_buff_din[55:0]} :
+				    sd_buff_addr[2:0] == 3'b001 ? {sd_metadata_buff_din[63:56], sd_buff_dout, sd_metadata_buff_din[47:0]} :
+				    sd_buff_addr[2:0] == 3'b010 ? {sd_metadata_buff_din[63:48], sd_buff_dout, sd_metadata_buff_din[39:0]} :
+				    sd_buff_addr[2:0] == 3'b011 ? {sd_metadata_buff_din[63:40], sd_buff_dout, sd_metadata_buff_din[31:0]} :
+				    sd_buff_addr[2:0] == 3'b100 ? {sd_metadata_buff_din[63:32], sd_buff_dout, sd_metadata_buff_din[23:0]} :
+				    sd_buff_addr[2:0] == 3'b101 ? {sd_metadata_buff_din[63:24], sd_buff_dout, sd_metadata_buff_din[15:0]} :
+				    sd_buff_addr[2:0] == 3'b110 ? {sd_metadata_buff_din[63:16], sd_buff_dout, sd_metadata_buff_din[ 7:0]} :
+								  {sd_metadata_buff_din[63: 8], sd_buff_dout                            };
 wire [1:0] speed_zone;
 wire [13:0] bit_clock_delay; // 6.8 fixed-point
 wire [15:0] track_length;
+wire [15:0] previous_track_length_ratio; // 1.15 fixed-point
+wire [15:0] next_track_length_ratio; // 1.15 fixed-point
 
-trk_dpram #(.DATAWIDTH(32), .ADDRWIDTH(7)) metadata_buffer
+trk_dpram #(.DATAWIDTH(64), .ADDRWIDTH(7)) metadata_buffer
 (
 	.clock_a(sd_clk),
-	.address_a(sd_buff_addr[8:2]),
+	.address_a({sd_buff_base[0], sd_buff_addr[8:3]}),
 	.data_a(sd_metadata_buff_dout),
 	.wren_a(sd_b_ack & sd_buff_wr & metadata_track),
 	.q_a(sd_metadata_buff_din),
@@ -117,8 +127,9 @@ trk_dpram #(.DATAWIDTH(32), .ADDRWIDTH(7)) metadata_buffer
 	.clock_b(clk),
 	.address_b(cur_half_track),
 	// XXX: no drive-side write support: drive will not be able to resize tracks, and will write at pre-existing track speed.
+	.data_b(),
 	.wren_b(1'b0),
-	.q_b({speed_zone, bit_clock_delay, track_length})
+	.q_b({speed_zone, bit_clock_delay, track_length, previous_track_length_ratio, next_track_length_ratio})
 );
 
 reg [3:0] sd_buff_base;
@@ -126,6 +137,9 @@ reg [6:0] cur_half_track;
 wire metadata_track = cur_half_track == 7'd84;
 assign sd_lba = {cur_half_track, sd_buff_base};
 reg rd,wr;
+
+reg [15:0] track_change_ratio; // 1.15 fixed-point
+wire [45:0] scaled_buff_bit_addr = {buff_bit_addr, 15'b0} * track_change_ratio; // 16.15 * 1.15 fixed point = 16.30 fixed point result = 46 bits
 
 always @(posedge clk) begin
 	reg ack1,ack2,ack;
@@ -144,36 +158,34 @@ always @(posedge clk) begin
 	old_buff_din <= buff_din;
 	if (mtr) begin
 		if (clk_counter == clk_counter_max_integer) begin
-			// number of 32MHz clock periods until next bit is: next_delay_int.next_delay_fract =  (track_delay_int.track_delay_fract) * 2 + (32 * 2 - 1).next_delay_fract
-			// "32" because track delay is stored offset by -32.
+			// number of 32MHz clock periods until next bit is: next_delay = track_delay * 2 + (32 * 2 - 1).next_delay_fract
+			// "32" because track_delay is stored offset by -32.
 			// "* 2" because our clock is 32 MHz, while track delay is in 16MHz cycles.
 			// "- 1" because we are already one 32MHz cycle into the next bit.
 			// Note: clk_counter_max_fractional[0] is always 0 and is optimised away during synthesis, but removing it here makes the "* 2" harder to notice.
-			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, bit_clock_delay, 1'b0} + {1'b0, 6'd31, 1'b1, clk_counter_max_fractional};
+			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, bit_clock_delay, 1'b0} + {8'd63, clk_counter_max_fractional};
 			buff_bit_addr <= next_buff_bit_addr[15:3] < track_length ? next_buff_bit_addr : 16'b0;
 			buff_din_latched <= buff_din_posedge;
 			rnd_reg <= rnd;
 			clk_counter <= 0;
 		end else begin
 			// Emit current bit. XXX: emitting a flux inversion from counter 1 to 8 is completely arbitrary. Drive electronics do not care about the actual length.
-			if (clk_counter == 6'd1) begin
+			if (clk_counter == 8'd1) begin
 				if (flux_change) begin
-					buff_dout <= ~buff_we;
+					buff_dout <= ~buff_we & ~busy;
 					no_flux_change_count <= 0;
 				end else begin
-					// a zero lasts twice as long as a one
-					//clk_counter_max_integer <= {clk_counter_max_integer[6:0], 1'b0};
 					if (no_flux_change_count == 2'd3) begin
-						buff_dout <= ~buff_we & rnd_reg[0];
+						buff_dout <= ~buff_we & ~busy & rnd_reg[0];
 					end else begin
 						buff_dout <= 0;
 						no_flux_change_count <= no_flux_change_count + 2'b1;
 					end
 				end
-			end else if (clk_counter == 6'd8)
+			end else if (clk_counter == 8'd8)
 				buff_dout <= 0;
 			buff_din_latched <= buff_din_latched | buff_din_posedge;
-			clk_counter <= clk_counter + 6'b1;
+			clk_counter <= clk_counter + 8'b1;
 		end
 	end
 
@@ -194,18 +206,23 @@ always @(posedge clk) begin
 	else
 	if(busy) begin
 		if(old_ack && ~ack) begin
-			if(metadata_track) begin
-				cur_half_track <= half_track;
-				rd <= 1;
-			end
-			else
-			if(sd_buff_base != 4'b1111) begin
+			if(( metadata_track && sd_buff_base != 4'b1) ||
+			   (!metadata_track && sd_buff_base != 4'b1111)) begin
+				// Not done yet ? Load next LBA.
 				sd_buff_base <= sd_buff_base + 4'b1;
 				if(saving) wr <= 1;
 					else rd <= 1;
 			end
 			else
+			if(metadata_track) begin
+				// metadata_track loading done, start loading track data.
+				cur_half_track <= half_track;
+				sd_buff_base <= 0;
+				rd <= 1; // metadata_track is only read on disk change.
+			end
+			else
 			if(saving && (cur_half_track != half_track)) begin
+				// Was saving ? Load next track.
 				saving <= 0;
 				cur_half_track <= half_track;
 				sd_buff_base <= 0;
@@ -213,6 +230,8 @@ always @(posedge clk) begin
 			end
 			else
 			begin
+				// Done loading track, scale read head position.
+				buff_bit_addr <= scaled_buff_bit_addr[45:30];
 				busy <= 0;
 			end
 		end
@@ -224,6 +243,7 @@ always @(posedge clk) begin
 			sd_buff_base <= 0;
 			wr <= 1;
 			busy <= 1;
+			track_change_ratio <= 16'h8000; // 1.0 in 1.15 fixed-point
 		end
 		else
 		if (
@@ -231,7 +251,13 @@ always @(posedge clk) begin
 			(old_disk_change && ~disk_change)
 		) begin
 			saving <= 0;
-			cur_half_track <= old_disk_change && ~disk_change ? 7'd84 : half_track;
+			if (old_disk_change && ~disk_change) begin
+				cur_half_track <= 7'd84;
+				track_change_ratio <= 16'h8000; // Any value is fine.
+			end else begin
+				cur_half_track <= half_track;
+				track_change_ratio <= cur_half_track < half_track ? next_track_length_ratio : previous_track_length_ratio;
+			end
 			sd_buff_base <= 0;
 			rd <= 1;
 			busy <= 1;

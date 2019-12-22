@@ -17,10 +17,11 @@ class BaseImage(object):
         self.gcr_half_track_dict = gcr_half_track_dict
 
     def _getHalfTrackDataAndSpeed(self, half_track_number):
-        return self.gcr_half_track_dict.get(
-            half_track_number,
-            (None, self._DEFAULT_SPEED_LIST[half_track_number]),
-        )
+        try:
+            speed = self._DEFAULT_SPEED_LIST[half_track_number]
+        except IndexError:
+            speed = None
+        return self.gcr_half_track_dict.get(half_track_number, (None, speed))
 
     @classmethod
     def read(cls, istream):
@@ -36,7 +37,7 @@ class I64(BaseImage):
     track_data:
       0x2000 bytes whose bits represent magnetic flux changes
     track_metadata:
-      speed + clock_count + track_length
+      speed + clock_count + track_length + previous_track_length_ratio + next_track_length_ratio
     speed (2 bits):
       Track speed zone (0, 1, 2, 3, 0 being slowest).
       Only intended to be used to reconstruct G64 image.
@@ -45,6 +46,10 @@ class I64(BaseImage):
       Stored as fixed-point: 6 bits for integer part followed by 8 bits for fractional part.
     track_length (16 bits):
       The number of bytes in that track.
+    *_track_length_ratio (16 bits each)
+      Fixed-point ratio between this track and...
+      previous_*: the one with an immediately inferior track number
+      next_*: the one with an immediately superior track number
     """
 
     # Fixed values (drive design)
@@ -89,15 +94,15 @@ class I64(BaseImage):
     assert _TRACK_LENGTH == 0x2000, _TRACK_LENGTH
     _BLANK_TRACK = '\x00' * _TRACK_LENGTH
     _METADATA_BLOCK_OFFSET = _TRACK_LENGTH * BaseImage._SIDE_TRACK_COUNT
-    _FILE_SIZE = _METADATA_BLOCK_OFFSET + 0x200 # Add one LBA for metadata: 84 * 4 < 0x200
+    _FILE_SIZE = _METADATA_BLOCK_OFFSET + 0x400 # Add one LBA for metadata: 84 * 4 < 0x200
 
     @classmethod
     def read(cls, istream):
         istream.seek(cls._METADATA_BLOCK_OFFSET)
-        track_metadata_list = [struct.unpack('>BBH', istream.read(4)) for _ in range(cls._SIDE_TRACK_COUNT)]
+        track_metadata_list = [struct.unpack('>BBHHH', istream.read(8)) for _ in range(cls._SIDE_TRACK_COUNT)]
         istream.seek(0)
         gcr_half_track_dict = {}
-        for half_track_number, (track_speed_and_delay_integer, delay_fractional, track_length) in enumerate(track_speed_list):
+        for half_track_number, (track_speed_and_delay_integer, delay_fractional, track_length, previous_track_length_ratio, next_track_length_ratio) in enumerate(track_speed_list):
             track = istream.read(cls._TRACK_LENGTH)
             if track != cls._BLANK_TRACK:
                 speed = track_speed_and_delay_integer >> 6
@@ -108,21 +113,32 @@ class I64(BaseImage):
 
     def write(self, ostream):
         track_metadata_list = []
+        next_track_length = previous_track_length = None
         for half_track_number in range(self._SIDE_TRACK_COUNT):
             track, speed = self._getHalfTrackDataAndSpeed(half_track_number)
             if track:
-                assert len(track) <= self._TRACK_LENGTH, (half_track_number, len(track))
+                track_length = len(track)
+                assert track_length <= self._TRACK_LENGTH, (half_track_number, track_length)
             else:
+                track_length = len(self._BLANK_TRACK) if previous_track_length is None else previous_track_length
                 track = self._BLANK_TRACK
-            delay = self._SPEED_TO_BYTE_LENGTH_LIST[speed] / len(track) * self._STANDARD_ZERO_DELAY_LIST[speed]
+            assert next_track_length in (track_length, None), (half_track_number, next_track_length, track_length)
+            delay = self._SPEED_TO_BYTE_LENGTH_LIST[speed] / track_length * self._STANDARD_ZERO_DELAY_LIST[speed]
             assert self._TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH < delay < self._STANDARD_ONE_DELAY_LIST[speed] + self._STANDARD_ZERO_DELAY_LIST[speed], (half_track_number, delay, speed)
             delay_integer, delay_fractional = divmod(delay, 1)
+            if previous_track_length is None:
+                previous_track_length = track_length
+            next_track, _ = self._getHalfTrackDataAndSpeed(half_track_number + 1)
+            next_track_length = len(next_track) if next_track else track_length
             track_metadata_list.append(struct.pack(
-                '>BBH',
+                '>BBHHH',
                 speed << 6 | (int(delay_integer) - self._ONE_SHIFT_CLOCK_CYCLE_COUNT),
                 int(delay_fractional * 256),
-                len(track),
+                track_length,
+                int(round(previous_track_length / track_length * 2**15)),
+                int(round(next_track_length / track_length * 2**15)),
             ))
+            previous_track_length = track_length
             ostream.write(track)
             ostream.write('\x00' * (self._TRACK_LENGTH - len(track)))
         assert self._METADATA_BLOCK_OFFSET == ostream.tell()
