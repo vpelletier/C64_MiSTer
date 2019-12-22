@@ -393,10 +393,11 @@ class D64(BaseImage):
             # Double is the new half.
             half_track_number = track_number * 2
             gcr_track = ''.join(gcr_track)
-            track_usable_length = cls._DEFAULT_SPEED_LIST[half_track_number]
+            speed = cls._DEFAULT_SPEED_LIST[half_track_number]
+            track_usable_length = cls._SPEED_TO_BYTE_LENGTH_LIST[speed]
             if len(gcr_track) < track_usable_length:
                 gcr_track += '\x55' * (track_usable_length - len(gcr_track))
-            gcr_half_track_dict[half_track_number] = (gcr_track, cls._DEFAULT_SPEED_LIST[half_track_number])
+            gcr_half_track_dict[half_track_number] = (gcr_track, speed)
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
