@@ -103,8 +103,7 @@ wire [31:0] sd_metadata_buff_dout = sd_buff_addr[1:0] == 2'b00 ? {              
 				    sd_buff_addr[1:0] == 2'b10 ? {sd_metadata_buff_din[31:16], sd_buff_dout, sd_metadata_buff_din[ 7:0]} :
 								 {sd_metadata_buff_din[31: 8], sd_buff_dout                            };
 wire [1:0] speed_zone;
-wire [5:0] delay_integer;
-wire [7:0] delay_fractional;
+wire [13:0] bit_clock_delay; // 6.8 fixed-point
 wire [15:0] track_length;
 
 trk_dpram #(.DATAWIDTH(32), .ADDRWIDTH(7)) metadata_buffer
@@ -119,7 +118,7 @@ trk_dpram #(.DATAWIDTH(32), .ADDRWIDTH(7)) metadata_buffer
 	.address_b(cur_half_track),
 	// XXX: no drive-side write support: drive will not be able to resize tracks, and will write at pre-existing track speed.
 	.wren_b(1'b0),
-	.q_b({speed_zone, delay_integer, delay_fractional, track_length})
+	.q_b({speed_zone, bit_clock_delay, track_length})
 );
 
 reg [3:0] sd_buff_base;
@@ -150,7 +149,7 @@ always @(posedge clk) begin
 			// "* 2" because our clock is 32 MHz, while track delay is in 16MHz cycles.
 			// "- 1" because we are already one 32MHz cycle into the next bit.
 			// Note: clk_counter_max_fractional[0] is always 0 and is optimised away during synthesis, but removing it here makes the "* 2" harder to notice.
-			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, delay_integer, delay_fractional, 1'b0} + {1'b0, 6'd31, 1'b1, clk_counter_max_fractional};
+			{clk_counter_max_integer, clk_counter_max_fractional} <= {1'b0, bit_clock_delay, 1'b0} + {1'b0, 6'd31, 1'b1, clk_counter_max_fractional};
 			buff_bit_addr <= next_buff_bit_addr[15:3] < track_length ? next_buff_bit_addr : 16'b0;
 			buff_din_latched <= buff_din_posedge;
 			rnd_reg <= rnd;
