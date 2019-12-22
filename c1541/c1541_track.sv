@@ -123,7 +123,7 @@ trk_dpram #(.DATAWIDTH(32), .ADDRWIDTH(7)) metadata_buffer
 
 	.clock_b(clk),
 	.address_b(cur_half_track),
-	.data_b(), // XXX: no write support
+	// XXX: no drive-side write support: drive will not be able to resize tracks, and will write at pre-existing track speed.
 	.wren_b(1'b0),
 	.q_b({speed_zone, delay_integer, delay_fractional, track_length})
 );
