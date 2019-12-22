@@ -474,7 +474,6 @@ class D64(BaseImage):
             for block_id in range(track_sector_count):
                 block, = block_dict.get(block_id, (self._EMPTY_BLOCK, )) # Detect aliased blocks
                 block_list.append(block)
-            #import pdb; pdb.set_trace()
             ostream.write(''.join(block_list))
 
 EXTENSION_TO_CLASS = {
