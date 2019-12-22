@@ -97,7 +97,7 @@ trk_dpram buffer
 	.clock_b(clk),
 	.address_b(buff_bit_addr[15:3]),
 	.data_b(buff_din_byte),
-	.wren_b(buff_we && !busy),
+	.wren_b(buff_we/* && !busy*/),
 	.q_b(buff_dout_byte)
 );
 
@@ -138,8 +138,20 @@ wire metadata_track = cur_half_track == 7'd84;
 assign sd_lba = {cur_half_track, sd_buff_base};
 reg rd,wr;
 
-reg [15:0] track_change_ratio; // 1.15 fixed-point
-wire [45:0] scaled_buff_bit_addr = {buff_bit_addr, 15'b0} * track_change_ratio; // 16.15 * 1.15 fixed point = 16.30 fixed point result = 46 bits
+wire [45:0] previous_scaled_buff_bit_addr_long = {buff_bit_addr, 15'b0} * previous_track_length_ratio; // 16.15 * 1.15 fixed point = 16.30 fixed point result = 46 bits
+wire [15:0] previous_scaled_buff_bit_addr = previous_scaled_buff_bit_addr_long[45:30];
+wire [45:0] next_scaled_buff_bit_addr_long = {buff_bit_addr, 15'b0} * next_track_length_ratio; // 16.15 * 1.15 fixed point = 16.30 fixed point result = 46 bits
+wire [15:0] next_scaled_buff_bit_addr = next_scaled_buff_bit_addr_long[45:30];
+
+// Where a track change should start reading.
+// Start reading as close as possible to current head position, but far enough ahead that once it has seen any new-track byte it will not see any old-track byte.
+// Assuming tracks are received from hard processor at least 10 times faster than they are read,
+// and assuming LBAs are received in increasing sd_buff_addr order,
+// it is safe to read the LBA the head is currently on if it is further than 51.2 bytes away from its end. Round it to 64, or when the 3 MSb are 1.
+wire [3:0] previous_next_lba = previous_scaled_buff_bit_addr[15:12] + &previous_scaled_buff_bit_addr[11:9];
+wire [3:0] current_next_lba = buff_bit_addr[15:12] + &buff_bit_addr[11:9];
+wire [3:0] next_next_lba = next_scaled_buff_bit_addr[15:12] + &next_scaled_buff_bit_addr[11:9];
+
 
 always @(posedge clk) begin
 	reg ack1,ack2,ack;
@@ -151,6 +163,7 @@ always @(posedge clk) begin
 	reg [7:0] clk_counter_max_integer;
 	reg [7:0] clk_counter_max_fractional;
 	reg [1:0] no_flux_change_count;
+	reg [3:0] lba_count;
 
 	old_disk_change <= disk_change;
 	if (~old_disk_change && disk_change) ready <= 1;
@@ -172,11 +185,11 @@ always @(posedge clk) begin
 			// Emit current bit. XXX: emitting a flux inversion from counter 1 to 8 is completely arbitrary. Drive electronics do not care about the actual length.
 			if (clk_counter == 8'd1) begin
 				if (flux_change) begin
-					buff_dout <= ~buff_we & ~busy;
+					buff_dout <= ~buff_we;// & ~busy;
 					no_flux_change_count <= 0;
 				end else begin
 					if (no_flux_change_count == 2'd3) begin
-						buff_dout <= ~buff_we & ~busy & rnd_reg[0];
+						buff_dout <= ~buff_we /*& ~busy*/ & rnd_reg[0];
 					end else begin
 						buff_dout <= 0;
 						no_flux_change_count <= no_flux_change_count + 2'b1;
@@ -206,10 +219,11 @@ always @(posedge clk) begin
 	else
 	if(busy) begin
 		if(old_ack && ~ack) begin
-			if(( metadata_track && sd_buff_base != 4'b1) ||
-			   (!metadata_track && sd_buff_base != 4'b1111)) begin
+			if(( metadata_track && lba_count != 4'b1) ||
+			   (!metadata_track && lba_count != 4'b1111)) begin
 				// Not done yet ? Load next LBA.
 				sd_buff_base <= sd_buff_base + 4'b1;
+				lba_count <= lba_count + 4'b1;
 				if(saving) wr <= 1;
 					else rd <= 1;
 			end
@@ -218,6 +232,7 @@ always @(posedge clk) begin
 				// metadata_track loading done, start loading track data.
 				cur_half_track <= half_track;
 				sd_buff_base <= 0;
+				lba_count <= 0;
 				rd <= 1; // metadata_track is only read on disk change.
 			end
 			else
@@ -225,13 +240,20 @@ always @(posedge clk) begin
 				// Was saving ? Load next track.
 				saving <= 0;
 				cur_half_track <= half_track;
-				sd_buff_base <= 0;
+				if (cur_half_track < half_track) begin
+					buff_bit_addr <= next_scaled_buff_bit_addr;
+					sd_buff_base <= next_next_lba;
+				end else begin
+					buff_bit_addr <= previous_scaled_buff_bit_addr;
+					sd_buff_base <= previous_next_lba;
+				end
+
+				lba_count <= 0;
 				rd <= 1;
 			end
 			else
 			begin
-				// Done loading track, scale read head position.
-				buff_bit_addr <= scaled_buff_bit_addr[45:30];
+				// Done loading track.
 				busy <= 0;
 			end
 		end
@@ -240,10 +262,10 @@ always @(posedge clk) begin
 	if(ready) begin
 		if(save_track) begin
 			saving <= 1;
-			sd_buff_base <= 0;
+			sd_buff_base <= current_next_lba;
+			lba_count <= 0;
 			wr <= 1;
 			busy <= 1;
-			track_change_ratio <= 16'h8000; // 1.0 in 1.15 fixed-point
 		end
 		else
 		if (
@@ -253,12 +275,18 @@ always @(posedge clk) begin
 			saving <= 0;
 			if (old_disk_change && ~disk_change) begin
 				cur_half_track <= 7'd84;
-				track_change_ratio <= 16'h8000; // Any value is fine.
+				sd_buff_base <= 0;
 			end else begin
 				cur_half_track <= half_track;
-				track_change_ratio <= cur_half_track < half_track ? next_track_length_ratio : previous_track_length_ratio;
+				if (cur_half_track < half_track) begin
+					buff_bit_addr <= next_scaled_buff_bit_addr;
+					sd_buff_base <= next_next_lba;
+				end else begin
+					buff_bit_addr <= previous_scaled_buff_bit_addr;
+					sd_buff_base <= previous_next_lba;
+				end
 			end
-			sd_buff_base <= 0;
+			lba_count <= 0;
 			rd <= 1;
 			busy <= 1;
 		end
