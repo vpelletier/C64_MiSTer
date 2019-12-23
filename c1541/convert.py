@@ -102,13 +102,10 @@ class I64(BaseImage):
         track_metadata_list = [struct.unpack('>BBHHH', istream.read(8)) for _ in range(cls._SIDE_TRACK_COUNT)]
         istream.seek(0)
         gcr_half_track_dict = {}
-        for half_track_number, (track_speed_and_delay_integer, delay_fractional, track_length, previous_track_length_ratio, next_track_length_ratio) in enumerate(track_speed_list):
+        for half_track_number, (track_speed_and_delay_integer, _, track_length, _, _) in enumerate(track_metadata_list):
             track = istream.read(cls._TRACK_LENGTH)
             if track != cls._BLANK_TRACK:
-                speed = track_speed_and_delay_integer >> 6
-                delay = (track_speed_and_delay_integer & 0x3f) + self._ONE_SHIFT_CLOCK_CYCLE_COUNT + delay_fractional / 256
-                assert self._TIME_DOMAIN_FILTER_PULSE_BASE_CLOCK_WIDTH < delay < self._STANDARD_ZERO_DELAY_LIST[speed], (half_track_number, delay, speed)
-                gcr_half_track_dict[half_track_number] = (track[:track_length], speed)
+                gcr_half_track_dict[half_track_number] = (track[:track_length], track_speed_and_delay_integer >> 6)
         return cls(gcr_half_track_dict)
 
     def write(self, ostream):
