@@ -414,8 +414,6 @@ begin
                 ca2_pulse_o     <= '1';
                 cb2_handshake_o <= '1';
                 cb2_pulse_o     <= '1';
-                timer_a_latch  <= latch_reset_pattern;
-                timer_b_latch  <= latch_reset_pattern;
                 trigger_serial <= '0';
             end if;
         end if;
