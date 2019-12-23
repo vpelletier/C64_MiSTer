@@ -226,7 +226,7 @@ always @(posedge clk) begin
 			else
 			if(( metadata_track && lba_count != 4'b1) ||
 			   (!metadata_track && lba_count != 4'b1111)) begin
-				// Not done yet ? Load next LBA.
+				// Not done yet ? Load/writeback next LBA.
 				sd_buff_base <= sd_buff_base + 4'b1;
 				lba_count <= lba_count + 4'b1;
 				if(saving) wr <= 1;
@@ -244,7 +244,6 @@ always @(posedge clk) begin
 			if(saving && (cur_half_track != half_track)) begin
 				// Was saving ? Load next track.
 				saving <= 0;
-				cur_half_track <= half_track;
 				if (cur_half_track < half_track) begin
 					buff_bit_addr <= next_scaled_buff_bit_addr;
 					sd_buff_base <= next_next_lba;
@@ -252,6 +251,7 @@ always @(posedge clk) begin
 					buff_bit_addr <= previous_scaled_buff_bit_addr;
 					sd_buff_base <= previous_next_lba;
 				end
+				cur_half_track <= half_track;
 
 				lba_count <= 0;
 				rd <= 1;
