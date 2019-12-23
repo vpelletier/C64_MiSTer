@@ -319,7 +319,7 @@ class D64(BaseImage):
     @classmethod
     def read(cls, istream):
         istream.seek(cls._ID_OFFSET)
-        disk_id = istream.read(2)
+        disk_id = ''.join(reversed(istream.read(2)))
         disk_id_sum = ord(disk_id[0]) ^ ord(disk_id[1])
         bad_disk_id = disk_id[0] + chr(ord(disk_id[1]) ^ 1)
         bad_disk_id_sum = ord(bad_disk_id[0]) ^ ord(bad_disk_id[1])
