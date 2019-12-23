@@ -177,7 +177,7 @@ c1541_via6522 uc1
 	.ca2_o(),
 	.ca2_t_l(),
 
-	.port_a_i({7'd0,tr00_sense_n}),
+	.port_a_i({7'h7f, tr00_sense_n}),
 	.port_a_o(),
 	.port_a_t_l(),
 
@@ -189,7 +189,7 @@ c1541_via6522 uc1
 	.cb2_o(),
 	.cb2_t_l(),
 
-	.port_b_i({~iec_atn, ds, 2'b00, ~(iec_clk & sb_clk_out), 1'b0, ~(iec_data & sb_data_out)}),
+	.port_b_i({~iec_atn, ds, 2'b11, ~(iec_clk & sb_clk_out), 1'b1, ~(iec_data & sb_data_out)}),
 	.port_b_o(uc1_pb_o),
 	.port_b_t_l(uc1_pb_oe_n),
 
