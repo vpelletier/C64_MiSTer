@@ -73,7 +73,7 @@ reg [15:0] buff_bit_addr;
 wire [15:0] next_buff_bit_addr = buff_bit_addr + 16'b1;
 wire [7:0] buff_dout_byte;
 wire flux_change = buff_dout_byte[~buff_bit_addr[2:0]];
-wire buff_din_posedge = !old_buff_din && buff_din;
+wire buff_din_posedge = buff_we && !old_buff_din && buff_din;
 reg old_buff_din;
 reg buff_din_latched;
 
