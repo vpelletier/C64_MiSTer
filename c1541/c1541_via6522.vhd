@@ -470,7 +470,6 @@ begin
 
                 if reset='1' then
                     timer_a_toggle <= '1';
-                    timer_a_count  <= latch_reset_pattern;
                     timer_a_reload <= '0';
                     timer_a_oneshot_trig <= '0';
                 end if;
@@ -542,7 +541,6 @@ begin
                 end if;
 
                 if reset='1' then
-                    timer_b_count  <= latch_reset_pattern;
                     timer_b_reload_lo    <= '0';
                     timer_b_oneshot_trig <= '0';                    
                 end if;
