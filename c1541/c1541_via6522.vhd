@@ -72,7 +72,7 @@ architecture Gideon of c1541_via6522 is
     end record;
     
     constant pio_default : pio_t := (others => (others => '0'));
-    constant latch_reset_pattern : std_logic_vector(15 downto 0) := X"FFFF";
+    constant latch_reset_pattern : std_logic_vector(15 downto 0) := X"0105";
 
     signal pio_i         : pio_t;
     signal port_a_c      : std_logic_vector(7 downto 0) := (others => '0');
@@ -616,7 +616,7 @@ begin
         begin
             if rising_edge(clock) then
                 if reset = '1' then
-                    shift_reg <= X"FF";
+                    shift_reg <= X"00";
                     shift_tick_r <= '0';
                     shift_tick_f <= '0';
                 elsif falling = '1' then
