@@ -341,7 +341,8 @@ begin
                 --Port B reads its own output register for pins set to output.
                 data_out <= (pio_i.prb and pio_i.ddrb) or (irb and not pio_i.ddrb);
             when X"1" => -- ORA
-                data_out <= ira;
+                --Port A reads line state, which is forced low for output pins pulled low.
+                data_out <= (pio_i.pra or not pio_i.ddra) and ira;
             when X"2" => -- DDRB
                 data_out <= pio_i.ddrb;
             when X"3" => -- DDRA
@@ -369,7 +370,7 @@ begin
             when X"E" => -- IER
                 data_out  <= '1' & irq_mask;
             when X"F" => -- ORA
-                data_out  <= ira;
+                data_out <= (pio_i.pra or not pio_i.ddra) and ira;
             when others =>
                 null;
             end case;
