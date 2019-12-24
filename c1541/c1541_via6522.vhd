@@ -432,7 +432,7 @@ begin
     -- Timer A
     tmr_a: block
         signal timer_a_reload        : std_logic;
-        signal timer_a_oneshot_trig  : std_logic;
+        signal timer_a_can_interrupt : std_logic;
         signal timer_a_toggle        : std_logic;
     begin
         process(clock)
@@ -444,7 +444,7 @@ begin
                     if timer_a_reload = '1' then
                         timer_a_count  <= timer_a_latch;
                         timer_a_reload <= '0';
-                        timer_a_oneshot_trig <= '0';
+                        timer_a_can_interrupt <= tmr_a_freerun;
                     else
                         if timer_a_count = X"0000" then
                             -- generate an event if we were triggered
@@ -465,19 +465,19 @@ begin
                     timer_a_toggle <= '0';
                     timer_a_count  <= data_in & timer_a_latch(7 downto 0);
                     timer_a_reload <= '0';
-                    timer_a_oneshot_trig <= '1';
+                    timer_a_can_interrupt <= '1';
                 end if;
 
                 if reset='1' then
                     timer_a_toggle <= '1';
                     timer_a_reload <= '0';
-                    timer_a_oneshot_trig <= '0';
+                    timer_a_can_interrupt <= '0';
                 end if;
             end if;
         end process;
 
         timer_a_out   <= timer_a_toggle;
-        timer_a_event <= rising and timer_a_reload and (tmr_a_freerun or timer_a_oneshot_trig);
+        timer_a_event <= rising and timer_a_reload and timer_a_can_interrupt;
          
     end block tmr_a;
     
