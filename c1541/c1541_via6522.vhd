@@ -296,7 +296,6 @@ begin
                     
                 when X"7" => -- TA HI latch
                     timer_a_latch(15 downto 8) <= data_in;
-                    timer_a_flag <= '0';
                     
                 when X"8" => -- TB LO latch
                     timer_b_latch(7 downto 0) <= data_in;
