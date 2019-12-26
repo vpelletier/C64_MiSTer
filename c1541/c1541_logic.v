@@ -179,7 +179,9 @@ via6522 uc1
 	.cb2_out(),
 	.cb2_in(1'b1),
 
-	.ce(p2_h_r), // ???
+	.phi2_rising(p2_h_r),
+	.phi2_falling(p2_h_f),
+	.phi2(),
 	.clk(clk32),
 	.reset(reset)
 );
@@ -215,7 +217,9 @@ via6522 uc3
 	.cb2_out(uc3_cb2_o),
 	.cb2_in(1'b1),
 
-	.ce(p2_h_r), // ???
+	.phi2_rising(p2_h_r),
+	.phi2_falling(p2_h_f),
+	.phi2(),
 	.clk(clk32),
 	.reset(reset)
 );
